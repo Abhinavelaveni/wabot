@@ -1,0 +1,1083 @@
+<!doctype html>
+
+<html lang="en" class="light-style layout-menu-fixed layout-compact" dir="ltr" data-theme="theme-default"
+  data-assets-path="../assets/" data-template="vertical-menu-template-free" data-style="light">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+
+  <title>WA Wot - By Abhinavelaveni</title>
+
+  <meta name="description" content="" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="../assets/img/favicon/favicon.ico" />
+  <!-- Tabler Icons CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons@latest/iconfont/tabler-icons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap"
+    rel="stylesheet" />
+
+  <link rel="stylesheet" href="../assets/vendor/fonts/boxicons.css" />
+
+  <!-- Core CSS -->
+  <link rel="stylesheet" href="../assets/vendor/css/core.css" class="template-customizer-core-css" />
+  <link rel="stylesheet" href="../assets/vendor/css/theme-default.css" class="template-customizer-theme-css" />
+  <link rel="stylesheet" href="../assets/css/demo.css" />
+
+  <!-- Vendors CSS -->
+  <link rel="stylesheet" href="../assets/vendor/libs/perfect-scrollbar/perfect-scrollbar.css" />
+  <link rel="stylesheet" href="../assets/vendor/libs/apex-charts/apex-charts.css" />
+
+  <!-- Page CSS -->
+
+  <!-- Helpers -->
+  <script src="../assets/vendor/js/helpers.js"></script>
+  <script src="../assets/vendor/js/myjavascript.js"></script>
+  <!--! Template customizer & Theme config files MUST be included after core stylesheets and helpers.js in the <head> section -->
+  <script src="../assets/vendor/js/template-customizer.js"></script>
+  <!--? Config:  Mandatory theme config file contain global vars & default theme options, Set your preferred theme option in this file.  -->
+  <script src="../assets/js/config.js"></script>
+<style>
+  #status {
+    padding: 8px 12px;
+    margin-top: 10px;
+    font-size: 0.9em;
+    border-radius: 6px;
+    display: none;
+    transition: all 0.3s ease;
+  }
+  #status.success { background: #d1fae5; color: #065f46; border: 1px solid #34d399; }
+  #status.error { background: #fee2e2; color: #991b1b; border: 1px solid #f87171; }
+  #status.sending { background: #dbeafe; color: #1e40af; border: 1px solid #60a5fa; }
+
+  /* Button loader */
+  .btn-loader {
+    position: relative;
+    pointer-events: none;
+    opacity: 0.8;
+  }
+  .btn-loader::after {
+    content: "";
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    100% { transform: rotate(360deg); }
+  }
+
+  /* Log panel */
+  #logPanel {
+    margin-top: 20px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 10px;
+    max-height: 250px;
+    overflow-y: auto;
+    font-size: 0.9em;
+  }
+  .log-entry {
+    margin-bottom: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
+  .log-success { background: #ecfdf5; color: #065f46; }
+  .log-error { background: #fef2f2; color: #991b1b; }
+  .log-sending { background: #eff6ff; color: #1e3a8a; }
+</style>
+
+
+ 
+</head>
+
+<body>
+  <!-- Layout wrapper -->
+  <div class="layout-wrapper layout-content-navbar">
+    <div class="layout-container">
+      <!-- Menu -->
+
+      <aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
+        <div class="app-brand demo">
+          <a href="index.html" class="app-brand-link">
+            <span class="app-brand-logo demo">
+
+            </span>
+            <span class="app-brand-text demo menu-text fw-bold ms-2">WA Bot</span>
+          </a>
+
+          <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto d-block d-xl-none">
+            <i class="bx bx-chevron-left bx-sm d-flex align-items-center justify-content-center"></i>
+          </a>
+        </div>
+
+        <div class="menu-inner-shadow"></div>
+
+        <ul class="menu-inner py-1">
+          <!-- Dashboards -->
+          <li class="menu-item active open">
+            <a href="index.html" class="menu-link d-flex align-items-center">
+              <i class="menu-icon tf-icons bx bx-home-smile me-2"></i>
+              <div class="text-truncate" data-i18n="Dashboards">Dashboards</div>
+              <span class="badge rounded-pill bg-danger ms-auto" id="online-devices-count">0</span>
+            </a>
+          </li>
+          <li>
+            <section id="client-selection-section" class="container mt-4" style="max-width: 500px;">
+              <label for="client-select" class="form-label"><strong>Connected Clients:</strong></label>
+              <select id="client-select" class="form-select main-device" style="cursor: pointer; width: 100%;">
+                <option value="">Select Device</option>
+              </select>
+              <div id="status-message" class="mt-2 small"></div>
+              <div id="selected-client-info" class="card mt-2 shadow-sm" style="display:none;">
+                <div class="card-body p-3 rounded-3 bg-white">
+                  <h6 class="card-title mb-3 text-primary small fw-semibold">
+                    <i class="bi bi-phone me-1"></i> Selected Device Info
+                  </h6>
+                  <div class="row mb-2 align-items-center">
+                    <div class="col-5 text-muted small text-end">Name:</div>
+                    <div class="col-7 small"><span id="selected-client-name" class="text-secondary"></span></div>
+                  </div>
+                  <div class="row mb-2 align-items-center">
+                    <div class="col-5 text-muted small text-end">Status:</div>
+                    <div class="col-7 small">
+                      <span id="selected-client-status" class="text-secondary"></span>
+                    </div>
+                  </div>
+                  <div class="row mb-2 align-items-center">
+                    <div class="col-5 text-muted small text-end">Last Activity:</div>
+                    <div class="col-7 small"><span id="selected-client-last-activity" class="text-secondary"></span>
+                    </div>
+                  </div>
+                  <div class="row mb-1 align-items-center">
+                    <div class="col-5 text-muted small text-end">Session Age:</div>
+                    <div class="col-7 small"><span id="selected-client-session-age" class="text-secondary"></span></div>
+                  </div>
+                </div>
+              </div>
+
+              <script defer>
+                const API_BASE = 'http://localhost:3000/api';
+
+                const clientSelect = document.getElementById('client-select');
+                const statusMessage = document.getElementById('status-message');
+
+                const selectedClientInfoDiv = document.getElementById('selected-client-info');
+                const selectedClientName = document.getElementById('selected-client-name');
+                const selectedClientStatus = document.getElementById('selected-client-status');
+                const selectedClientLastActivity = document.getElementById('selected-client-last-activity');
+                const selectedClientSessionAge = document.getElementById('selected-client-session-age');
+
+                // Utility for safe JSON fetching
+                async function fetchJson(url, options = {}) {
+                  const resp = await fetch(url, options);
+                  const contentType = resp.headers.get('content-type') || '';
+                  if (!contentType.includes('application/json')) {
+                    const text = await resp.text();
+                    throw new Error(`Expected JSON but got: ${text.substring(0, 200)}`);
+                  }
+                  if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.error || resp.statusText || 'Unknown error');
+                  }
+                  return resp.json();
+                }
+
+                // Load connected clients into dropdown
+                async function loadConnectedClients() {
+                  try {
+                    const data = await fetchJson(`${API_BASE}/clients/connected`);
+                    clientSelect.innerHTML = '<option value="">Select Device</option>';
+                    if (data.clients.length === 0) {
+                      clientSelect.innerHTML = '<option value="">No connected clients available</option>';
+                      clientSelect.disabled = true;
+                    } else {
+                      data.clients.forEach(client => {
+                        const option = document.createElement('option');
+                        option.value = client.name;
+                        option.textContent = `${client.name} `;;
+                        clientSelect.appendChild(option);
+                      });
+                      clientSelect.disabled = false;
+                    }
+                    setStatus(`Loaded ${data.clients.length} connected client(s)`);
+                  } catch (err) {
+                    clientSelect.innerHTML = '<option value="">Error loading clients</option>';
+                    clientSelect.disabled = true;
+                    setStatus(`Error loading clients: ${err.message}`);
+                  }
+                }
+
+                // Load current selected client info
+                async function loadSelectedClient() {
+                  try {
+                    const data = await fetchJson(`${API_BASE}/selected-device`);
+                    if (!data.selectedDevice) {
+                      selectedClientInfoDiv.style.display = 'none';
+                      setStatus('No device currently selected.');
+                      clientSelect.value = ""; // Reset dropdown selection
+                    } else {
+                      selectedClientInfoDiv.style.display = 'block';
+                      selectedClientName.textContent = data.selectedDevice;
+                      selectedClientStatus.textContent = data.status || 'N/A';
+                      selectedClientLastActivity.textContent = data.lastActivity ? new Date(data.lastActivity).toLocaleString() : 'N/A';
+                      selectedClientSessionAge.textContent = data.sessionAge || 'N/A';
+                      setStatus(`Selected client: ${data.selectedDevice}`);
+                      clientSelect.value = data.selectedDevice;
+                    }
+                  } catch (err) {
+                    selectedClientInfoDiv.style.display = 'none';
+                    setStatus(`Error fetching selected client: ${err.message}`);
+                  }
+                }
+
+                // Select a client dynamically
+                async function selectClient(clientName) {
+                  if (!clientName) return;
+                  try {
+                    await fetchJson(`${API_BASE}/select-device`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ deviceName: clientName }),
+                    });
+                    setStatus(`Selected client: ${clientName}`);
+                  } catch (err) {
+                    setStatus(`Error selecting client: ${err.message}`);
+                  }
+                }
+
+                // Clear selected client dynamically
+                async function clearSelectedClient() {
+                  try {
+                    const data = await fetchJson(`${API_BASE}/clear-selected-device`, {
+                      method: 'POST',
+                    });
+                    setStatus(data.message || 'Selection cleared.');
+                  } catch (err) {
+                    setStatus(`Error clearing selection: ${err.message}`);
+                  }
+                }
+
+                function setStatus(msg) {
+                  statusMessage.textContent = msg;
+                }
+
+                // Event listener for client selection changes
+                clientSelect.addEventListener('change', async () => {
+                  const selectedValue = clientSelect.value;
+                  if (selectedValue) {
+                    await selectClient(selectedValue);
+                  } else {
+                    await clearSelectedClient();
+                  }
+                  await loadSelectedClient();
+                });
+
+                // Initialize UI on page load
+                loadConnectedClients();
+                loadSelectedClient();
+
+                // Refresh every 60 seconds
+                setInterval(loadConnectedClients, 60000);
+                setInterval(loadSelectedClient, 60000);
+              </script>
+
+          </li>
+          <!-- WhatsApp Features -->
+          <li class="menu-header small text-uppercase">
+            <span class="menu-header-text">WhatsApp Features</span>
+          </li>
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-cube-alt"></i>
+              <div class="text-truncate" data-i18n="">Auto-Features</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="singlemessenger.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Single Messenger</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="bulkmessaging.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Bulk Message</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="greetingmessage.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Greeting Message</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <li class="menu-item">
+            <a href="auto-responder.html" class="menu-link">
+              <i class="menu-icon ti ti-brand-gravatar"></i>
+              <div class="text-truncate" data-i18n="">Auto-Responder</div>
+            </a>
+          </li>
+          <li class="menu-item">
+            <a href="filemanager.html" class="menu-link">
+              <i class="menu-icon ti ti-file-dots"></i>
+              <div class="text-truncate" data-i18n="">File-Manager</div>
+            </a>
+          </li>
+          <li class="menu-item">
+            <a href="senderlogs.html" class="menu-link">
+              <i class="menu-icon ti ti-brand-whatsapp"></i>
+              <div class="text-truncate" data-i18n="">Sender-Logs</div>
+            </a>
+          </li>
+
+          <!-- College Features -->
+          <li class="menu-header small text-uppercase">
+            <span class="menu-header-text">College Features</span>
+          </li>
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon ti ti-bell-ringing"></i>
+              <div class="text-truncate" data-i18n="">Auto Notifier</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Fee Reminders</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Attendance Alerts</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Student Performance</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <!-- Dept Performance -->
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon ti ti-brand-office"></i>
+              <div class="text-truncate" data-i18n="">Dept Performance</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">HODs</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Staff</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <!-- HODS Section -->
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon fa-solid fa-user-tie"></i>
+              <div class="text-truncate" data-i18n="">HOD Central</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Announcements</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auto-responder.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="#">Academic and Exam Management</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <li class="menu-item">
+            <a href="#" class="menu-link">
+              <i class="menu-icon fa-solid fa-calendar-days"></i>
+              <div class="text-truncate" data-i18n="">Events</div>
+            </a>
+          </li>
+          <li class="menu-item">
+            <a href="#" class="menu-link">
+              <i class="menu-icon ti ti-message-circle"></i>
+              <div class="text-truncate" data-i18n="">Quick Replies</div>
+            </a>
+          </li>
+          <li class="menu-item">
+            <a href="#" class="menu-link">
+              <i class="menu-icon ti ti-brand-whatsapp"></i>
+              <div class="text-truncate" data-i18n="">Sender-Logs</div>
+            </a>
+          </li>
+
+
+          <li class="menu-header small text-uppercase">
+            <span class="menu-header-text">Main &amp; Menu</span>
+          </li>
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-dock-top"></i>
+              <div class="text-truncate" data-i18n="Account Settings">Account Settings</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="pages-account-settings-account.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Account">Account</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="pages-account-settings-notifications.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Notifications">Notifications</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="pages-account-settings-connections.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Connections">Connections</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-lock-open-alt"></i>
+              <div class="text-truncate" data-i18n="Authentications">Authentications</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="auth-login-basic.html" class="menu-link" target="_blank">
+                  <div class="text-truncate" data-i18n="Basic">Login</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auth-register-basic.html" class="menu-link" target="_blank">
+                  <div class="text-truncate" data-i18n="Basic">Register</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="auth-forgot-password-basic.html" class="menu-link" target="_blank">
+                  <div class="text-truncate" data-i18n="Basic">Forgot Password</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-cube-alt"></i>
+              <div class="text-truncate" data-i18n="Misc">Misc</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="pages-misc-error.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Error">Error</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="pages-misc-under-maintenance.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Under Maintenance">Under Maintenance</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <!-- Components -->
+          <li class="menu-header small text-uppercase"><span class="menu-header-text">Components</span></li>
+          <!-- Cards -->
+          <li class="menu-item">
+            <a href="cards-basic.html" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-collection"></i>
+              <div class="text-truncate" data-i18n="Basic">Cards</div>
+            </a>
+          </li>
+          <!-- User interface -->
+          <li class="menu-item">
+            <a href="javascript:void(0)" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-box"></i>
+              <div class="text-truncate" data-i18n="User interface">User interface</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="ui-accordion.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Accordion">Accordion</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-alerts.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Alerts">Alerts</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-badges.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Badges">Badges</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-buttons.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Buttons">Buttons</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-carousel.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Carousel">Carousel</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-collapse.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Collapse">Collapse</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-dropdowns.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Dropdowns">Dropdowns</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-footer.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Footer">Footer</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-list-groups.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="List Groups">List groups</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-modals.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Modals">Modals</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-navbar.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Navbar">Navbar</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-offcanvas.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Offcanvas">Offcanvas</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-pagination-breadcrumbs.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Pagination & Breadcrumbs">Pagination &amp; Breadcrumbs</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-progress.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Progress">Progress</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-spinners.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Spinners">Spinners</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-tabs-pills.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Tabs & Pills">Tabs &amp; Pills</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-toasts.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Toasts">Toasts</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-tooltips-popovers.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Tooltips & Popovers">Tooltips &amp; Popovers</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="ui-typography.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Typography">Typography</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+
+          <!-- Extended components -->
+          <li class="menu-item">
+            <a href="javascript:void(0)" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-copy"></i>
+              <div class="text-truncate" data-i18n="Extended UI">Extended UI</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="extended-ui-perfect-scrollbar.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Perfect Scrollbar">Perfect Scrollbar</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="extended-ui-text-divider.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Text Divider">Text Divider</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+
+          <li class="menu-item">
+            <a href="icons-boxicons.html" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-crown"></i>
+              <div class="text-truncate" data-i18n="Boxicons">Boxicons</div>
+            </a>
+          </li>
+
+          <!-- Forms & Tables -->
+          <li class="menu-header small text-uppercase"><span class="menu-header-text">Forms &amp; Tables</span></li>
+          <!-- Forms -->
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-detail"></i>
+              <div class="text-truncate" data-i18n="Form Elements">Form Elements</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="forms-basic-inputs.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Basic Inputs">Basic Inputs</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="forms-input-groups.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Input groups">Input groups</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <li class="menu-item">
+            <a href="javascript:void(0);" class="menu-link menu-toggle">
+              <i class="menu-icon tf-icons bx bx-detail"></i>
+              <div class="text-truncate" data-i18n="Form Layouts">Form Layouts</div>
+            </a>
+            <ul class="menu-sub">
+              <li class="menu-item">
+                <a href="form-layouts-vertical.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Vertical Form">Vertical Form</div>
+                </a>
+              </li>
+              <li class="menu-item">
+                <a href="form-layouts-horizontal.html" class="menu-link">
+                  <div class="text-truncate" data-i18n="Horizontal Form">Horizontal Form</div>
+                </a>
+              </li>
+            </ul>
+          </li>
+          <!-- Tables -->
+          <li class="menu-item">
+            <a href="tables-basic.html" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-table"></i>
+              <div class="text-truncate" data-i18n="Tables">Tables</div>
+            </a>
+          </li>
+          <!-- Misc -->
+          <li class="menu-header small text-uppercase"><span class="menu-header-text">Misc</span></li>
+          <li class="menu-item">
+            <a href="https://github.com/themeselection/sneat-html-admin-template-free/issues" target="_blank"
+              class="menu-link">
+              <i class="menu-icon tf-icons bx bx-support"></i>
+              <div class="text-truncate" data-i18n="Support">Support</div>
+            </a>
+          </li>
+          <li class="menu-item">
+            <a href="https://demos.themeselection.com/sneat-bootstrap-html-admin-template/documentation/"
+              target="_blank" class="menu-link">
+              <i class="menu-icon tf-icons bx bx-file"></i>
+              <div class="text-truncate" data-i18n="Documentation">Documentation</div>
+            </a>
+          </li>
+        </ul>
+      </aside>
+      <!-- / Menu -->
+
+      <!-- Layout container -->
+      <div class="layout-page">
+        <!-- Navbar -->
+
+        <nav
+          class="layout-navbar container-xxl navbar navbar-expand-xl navbar-detached align-items-center bg-navbar-theme"
+          id="layout-navbar">
+          <div class="layout-menu-toggle navbar-nav align-items-xl-center me-4 me-xl-0 d-xl-none">
+            <a class="nav-item nav-link px-0 me-xl-6" href="javascript:void(0)">
+              <i class="bx bx-menu bx-md"></i>
+            </a>
+          </div>
+
+          <div class="navbar-nav-right d-flex align-items-center" id="navbar-collapse">
+            <!-- Search -->
+            <div class="navbar-nav align-items-center">
+              <div class="nav-item d-flex align-items-center">
+                <i class="bx bx-search bx-md"></i>
+                <input type="text" class="form-control border-0 shadow-none ps-1 ps-sm-2" placeholder="Search..."
+                  aria-label="Search..." />
+              </div>
+            </div>
+            <!-- /Search -->
+
+            <ul class="navbar-nav flex-row align-items-center ms-auto">
+              <!-- Place this tag where you want the button to render. -->
+              <li class="nav-item lh-1 me-4">
+                <a class="github-button" href="https://github.com/themeselection/sneat-html-admin-template-free"
+                  data-icon="octicon-star" data-size="large" data-show-count="true"
+                  aria-label="Star themeselection/sneat-html-admin-template-free on GitHub">Star</a>
+              </li>
+
+              <!-- User -->
+              <li class="nav-item navbar-dropdown dropdown-user dropdown">
+                <a class="nav-link dropdown-toggle hide-arrow p-0" href="javascript:void(0);" data-bs-toggle="dropdown">
+                  <div class="avatar avatar-online">
+                    <img src="../assets/img/avatars/1.png" alt class="w-px-40 h-auto rounded-circle" />
+                  </div>
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li>
+                    <a class="dropdown-item" href="#">
+                      <div class="d-flex">
+                        <div class="flex-shrink-0 me-3">
+                          <div class="avatar avatar-online">
+                            <img src="../assets/img/avatars/1.png" alt class="w-px-40 h-auto rounded-circle" />
+                          </div>
+                        </div>
+                        <div class="flex-grow-1">
+                          <h6 class="mb-0">John Doe</h6>
+                          <small class="text-muted">Admin</small>
+                        </div>
+                      </div>
+                    </a>
+                  </li>
+                  <li>
+                    <div class="dropdown-divider my-1"></div>
+                  </li>
+                  <li>
+                    <a class="dropdown-item" href="#">
+                      <i class="bx bx-user bx-md me-3"></i><span>My Profile</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a class="dropdown-item" href="#"> <i class="bx bx-cog bx-md me-3"></i><span>Settings</span> </a>
+                  </li>
+                  <li>
+                    <a class="dropdown-item" href="#">
+                      <span class="d-flex align-items-center align-middle">
+                        <i class="flex-shrink-0 bx bx-credit-card bx-md me-3"></i><span
+                          class="flex-grow-1 align-middle">Billing Plan</span>
+                        <span class="flex-shrink-0 badge rounded-pill bg-danger">4</span>
+                      </span>
+                    </a>
+                  </li>
+                  <li>
+                    <div class="dropdown-divider my-1"></div>
+                  </li>
+                  <li>
+                    <a class="dropdown-item" href="javascript:void(0);">
+                      <i class="bx bx-power-off bx-md me-3"></i><span>Log Out</span>
+                    </a>
+                  </li>
+                </ul>
+              </li>
+              <!--/ User -->
+            </ul>
+          </div>
+        </nav>
+        <!-- / Navbar -->
+        <div class="wrapper py-5">
+  <div class="container">
+    <div class="card p-4 shadow-lg">
+      <h2 class="mb-4 text-center">WhatsApp Sender</h2>
+      <p class="text-muted mb-4 text-center">Send texts, images, videos, and documents</p>
+
+      <form id="messageForm">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label for="phone" class="form-label">Phone Number</label>
+            <input type="text" class="form-control" id="phone" placeholder="916303963721">
+          </div>
+          <div class="col-md-6">
+            <label for="msgType" class="form-label">Message Type</label>
+            <select class="form-select" id="msgType">
+              <option value="text">Text</option>
+              <option value="image">Image</option>
+              <option value="video">Video</option>
+              <option value="document">Document</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mb-3" id="captionSection">
+          <label for="caption" class="form-label">Caption / Description</label>
+          <input type="text" class="form-control" id="caption" placeholder="Optional caption/description">
+        </div>
+
+        <!-- Text Section -->
+        <div id="textSection" class="message-section mb-3 visible">
+          <label for="textBody" class="form-label">Text</label>
+          <textarea id="textBody" class="form-control" rows="4" placeholder="👋 Hello from Abhinav's Bot!"></textarea>
+        </div>
+
+        <!-- Media Section -->
+        <div id="mediaSection" class="message-section mb-3" style="display:none;">
+          <label for="fileInput" class="form-label">Choose File</label>
+          <input type="file" class="form-control" id="fileInput">
+          <div id="mediaPreview" class="mt-2 rounded" style="max-height:200px; overflow:auto;"></div>
+        </div>
+
+        <!-- Live Preview -->
+        <div id="livePreview" class="p-2 mt-3 rounded" style="font-size: 0.92em;">
+          <strong style="font-size: 0.95em;">Preview:</strong>
+          <div id="previewContent" class="mt-2"></div>
+          <div id="previewCaption" class="mt-1 text-muted"></div>
+        </div>
+
+        <div class="d-flex gap-2 justify-content-end mt-4">
+          <button type="button" class="btn btn-primary" id="sendBtn">Send</button>
+        </div>
+
+        <div class="mt-3 p-2 rounded" id="status"></div>
+        
+<div class="mt-3 p-2 rounded" id="status"></div>
+<div id="logPanel"><strong>Message Log</strong><hr></div>
+      </form>
+    </div>
+  </div>
+</div>
+  <script>
+const el = id => document.getElementById(id);
+const msgType = el('msgType');
+const statusBox = el('status');
+const previewContent = el('previewContent');
+const previewCaption = el('previewCaption');
+const mediaPreview = el('mediaPreview');
+const textSection = el('textSection');
+const mediaSection = el('mediaSection');
+const captionSection = el('captionSection');
+const sendBtn = el('sendBtn');
+const logPanel = el('logPanel');
+let statusTimeout;
+
+// Show/hide sections
+function showSections(type) {
+  if(type === 'text') {
+    textSection.style.display = 'block';
+    mediaSection.style.display = 'none';
+    captionSection.style.display = 'none';
+  } else {
+    textSection.style.display = 'none';
+    mediaSection.style.display = 'block';
+    captionSection.style.display = 'block';
+  }
+  updatePreview();
+}
+msgType.addEventListener('change', () => showSections(msgType.value));
+showSections(msgType.value);
+
+// Helpers
+async function sendJSON(body) {
+  const res = await fetch('/api/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return res.json();
+}
+async function sendBinary(file, query) {
+  const url = '/api/send?' + new URLSearchParams(query).toString();
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: await file.arrayBuffer()
+  });
+  return res.json();
+}
+
+// Send
+sendBtn.onclick = async e => {
+  e.preventDefault();
+  const phone = el('phone').value.trim();
+  const type = msgType.value;
+  const caption = el('caption').value.trim();
+  const device = window.selectedDevice || null; // example: set this from your device dropdown/selector
+
+  if (!phone) {
+    MsgSetStatus('📱 Phone number is required', 'error');
+    return;
+  }
+
+  // Disable button + loader
+  sendBtn.disabled = true;
+  sendBtn.classList.add('btn-loader');
+  MsgSetStatus(`Sending ${type}...`, 'sending');
+  addLog(`Sending ${type} to ${phone}...`, 'sending');
+
+  try {
+    let result;
+
+    if (type === 'text') {
+      const payload = { device, phoneNumber: phone, type, options: { text: el('textBody').value, caption } };
+      result = await sendJSON(payload);
+    } else {
+      const f = el('fileInput').files[0];
+      if (!f) throw new Error('Please choose a file');
+      if (f.size > 10 * 1024 * 1024) throw new Error('File too large (max 10MB)');
+
+      result = await sendBinary(f, { device, phoneNumber: phone, type, caption, fileName: f.name });
+    }
+
+    MsgSetStatus(result.message || `✅ ${type} sent successfully!`, 'success');
+    addLog(result.message || `${type} sent to ${phone}`, 'success');
+  } catch (err) {
+    MsgSetStatus(`❌ ${err.message || err}`, 'error');
+    addLog(err.message || err, 'error');
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.classList.remove('btn-loader');
+  }
+};
+
+// Preview
+function updatePreview() {
+  const type = msgType.value;
+  const caption = el('caption').value.trim();
+  previewCaption.textContent = caption ? caption : '';
+  mediaPreview.innerHTML = '';
+
+  if (type === 'text') {
+    previewContent.textContent = el('textBody').value;
+  } else {
+    const f = el('fileInput').files[0];
+    if (f) {
+      previewContent.textContent = '';
+      if (type === 'image') {
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(f);
+        img.style.maxWidth = '100%';
+        img.style.borderRadius = '6px';
+        mediaPreview.appendChild(img);
+        previewContent.textContent = '🖼️ Image selected';
+      } else if (type === 'video') {
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(f);
+        video.controls = true;
+        video.style.maxWidth = '100%';
+        video.style.borderRadius = '6px';
+        mediaPreview.appendChild(video);
+        previewContent.textContent = '🎬 Video selected';
+      } else {
+        mediaPreview.textContent = `📄 ${f.name}`;
+        previewContent.textContent = 'Document selected';
+      }
+    } else {
+      previewContent.textContent = '';
+      mediaPreview.innerHTML = '';
+    }
+  }
+}
+el('textBody').addEventListener('input', updatePreview);
+el('caption').addEventListener('input', updatePreview);
+el('fileInput').addEventListener('change', updatePreview);
+
+// Status UI
+function MsgSetStatus(message, type = '') {
+  clearTimeout(statusTimeout);
+  statusBox.style.display = 'block';
+  statusBox.textContent = message;
+  statusBox.className = ''; // reset
+  if (type) statusBox.classList.add(type);
+  statusTimeout = setTimeout(() => { statusBox.style.display = 'none'; }, 5000);
+}
+
+// Log panel
+function addLog(msg, type) {
+  const div = document.createElement('div');
+  div.className = 'log-entry log-' + type;
+  div.textContent = msg;
+  logPanel.appendChild(div);
+  logPanel.scrollTop = logPanel.scrollHeight;
+}
+</script>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+          <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+
+
+          <!-- Bootstrap JS Bundle -->
+          <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+          <!-- SheetJS for Excel processing -->
+          <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+          <!-- Footer -->
+          <footer class="content-footer footer bg-footer-theme">
+            <div class="container-xxl">
+              <div
+                class="footer-container d-flex align-items-center justify-content-between py-4 flex-md-row flex-column">
+                <div class="text-body">
+                  ©
+                  <script>
+                    document.write(new Date().getFullYear());
+                  </script>
+                  , made with ❤️ by <a href="https://github.com/abhinavelaveni" target="_blank">abhinavelaveni</a>
+                </div>
+                <div class="d-none d-lg-inline-block">
+                  <a href="https://demos.themeselection.com/sneat-bootstrap-html-admin-template/documentation/"
+                    target="_blank" class="footer-link me-4">Documentation</a>
+
+                  <a href="https://github.com/themeselection/sneat-html-admin-template-free/issues" target="_blank"
+                    class="footer-link">Support</a>
+                </div>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </div>
+      <!-- / Footer -->
+
+      <div class="content-backdrop fade"></div>
+    </div>
+    <!-- Content wrapper -->
+  </div>
+  <!-- / Layout page -->
+  </div>
+
+  <!-- Overlay -->
+  <div class="layout-overlay layout-menu-toggle"></div>
+  </div>
+  <!-- Core JS -->
+  <!-- build:js assets/vendor/js/core.js -->
+
+  <script src="../assets/vendor/libs/jquery/jquery.js"></script>
+  <script src="../assets/vendor/libs/popper/popper.js"></script>
+  <script src="../assets/vendor/js/bootstrap.js"></script>
+  <script src="../assets/vendor/libs/perfect-scrollbar/perfect-scrollbar.js"></script>
+  <script src="../assets/vendor/js/menu.js"></script>
+
+  <!-- endbuild -->
+
+  <!-- Vendors JS -->
+  <script src="../assets/vendor/libs/apex-charts/apexcharts.js"></script>
+
+  <!-- Main JS -->
+  <script src="../assets/js/main.js"></script>
+
+  <!-- Page JS -->
+  <script src="../assets/js/dashboards-analytics.js"></script>
+
+  <!-- Place this tag before closing body tag for github widget button. -->
+  <script async defer src="https://buttons.github.io/buttons.js"></script>
+</body>
+
+</html>

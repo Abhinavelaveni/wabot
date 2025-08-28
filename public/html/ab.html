@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Recent Logs Viewer</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    #logsContainer {
+      height: 250px;
+      overflow-y: auto;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 0.25rem;
+      padding: 1rem;
+    }
+    .device-logs:not(:last-child) { border-bottom: 1px solid #eaeaea; }
+    .list-group-item { border: none; }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <h3 class="mb-3">Recent Logs</h3>
+    <div class="logs" id="logsContainer">
+      <div class="text-center py-4">
+        <div class="spinner-border spinner-border-sm text-primary"
+             role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2 text-muted small">Loading logs...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const logsContainer = document.getElementById('logsContainer');
+
+    // Show loading spinner
+    function showLoading() {
+      logsContainer.innerHTML = `
+        <div class="text-center py-4">
+          <div class="spinner-border spinner-border-sm text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          <p class="mt-2 text-muted small">Loading logs...</p>
+        </div>
+      `;
+    }
+
+    // Render logs grouped by device
+    function renderLogs(logsByDevice) {
+      if (!logsByDevice || Object.keys(logsByDevice).length === 0) {
+        logsContainer.innerHTML = `<div class="text-center py-4 text-muted small">No logs found.</div>`;
+        return;
+      }
+
+      let html = '';
+      Object.entries(logsByDevice).forEach(([device, logs]) => {
+        html += `<div class="device-logs mb-3">
+          <div class="fw-bold text-primary mb-2">${device}</div>
+          <ul class="list-group mb-2">`;
+        logs.forEach(log => {
+          html += `
+            <li class="list-group-item small">
+              <div>
+                <span class="badge bg-secondary">${log.type}</span>
+                <span class="ms-1">${log.key || '(no key)'}</span>
+              </div>
+              <div class="text-muted">to <strong>${log.number}</strong> — ${
+                log.success
+                  ? '<span class="text-success">✔ Sent</span>'
+                  : '<span class="text-danger">✖ Failed</span>'
+              }</div>
+              <div class="text-muted">${log.timestamp || ''}</div>
+            </li>
+          `;
+        });
+        html += `</ul></div>`;
+      });
+
+      logsContainer.innerHTML = html;
+    }
+
+    // Load logs from API
+    function loadRecentLogs() {
+      showLoading();
+      fetch('/api/recent-logs')
+        .then(res => {
+          if (!res.ok) throw new Error('Network response was not ok');
+          return res.json();
+        })
+        .then(data => renderLogs(data))
+        .catch(() => {
+          logsContainer.innerHTML =
+            `<div class="text-center py-4 text-danger small">Failed to load logs.</div>`;
+        });
+    }
+
+    // Load on page ready
+    document.addEventListener('DOMContentLoaded', loadRecentLogs);
+  </script>
+</body>
+</html>

@@ -1,0 +1,555 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WhatsApp Client Manager</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px auto;
+    max-width: 600px;
+    padding: 10px;
+    background: #f8f9fa;
+  }
+  h1 {
+    text-align: center;
+  }
+  section {
+    background: #fff;
+    padding: 15px 20px;
+    border-radius: 5px;
+    margin-bottom: 25px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.1);
+  }
+  label {
+    display: block;
+    margin-bottom: 8px;
+    margin-top: 15px;
+    font-weight: bold;
+  }
+  select, input[type="text"], textarea {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    margin-top: 5px;
+  }
+  button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #0b5ed7;
+  }
+  #status-message {
+    margin-top: 10px;
+    color: #333;
+    min-height: 20px;
+  }
+  .client-info {
+    margin-top: 10px;
+    background: #e9ecef;
+    padding: 10px;
+    border-radius: 4px;
+  }
+  .client-info b {
+    display: inline-block;
+    width: 120px;
+  }
+  input[type="checkbox"] {
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<h1>WhatsApp Client Manager</h1>
+
+<section id="client-selection-section">
+  <h2>Select Active Client</h2>
+  <label for="client-select">Connected Clients:</label>
+  <select id="client-select">
+    <option value="">-- Loading... --</option>
+  </select>
+  <button id="select-client-btn">Select Client</button>
+  <button id="clear-selection-btn" style="background:#dc3545;">Clear Selection</button>
+  <div id="status-message"></div>
+
+  <div id="selected-client-info" class="client-info" style="display:none;">
+    <h3>Selected Client Info:</h3>
+    <p><b>Name:</b> <span id="selected-client-name"></span></p>
+    <p><b>Status:</b> <span id="selected-client-status"></span></p>
+    <p><b>Last Activity:</b> <span id="selected-client-last-activity"></span></p>
+    <p><b>Session Age:</b> <span id="selected-client-session-age"></span></p>
+  </div>
+</section>
+
+<section id="message-sender-section">
+  <h2>Send Message</h2>
+
+  <label for="receiver-input">Receiver Phone Number (without country code + suffix, e.g. 919999999999):</label>
+  <input type="text" id="receiver-input" placeholder="e.g., 1234567890" />
+
+  <label for="message-textarea">Message Text:</label>
+  <textarea id="message-textarea" rows="4" placeholder="Type your message here..."></textarea>
+
+  <label>
+    <input type="checkbox" id="link-preview-checkbox" />
+    Enable Link Preview
+  </label>
+
+  <button id="send-message-btn">Send Message</button>
+</section>
+
+<script defer>
+  const API_BASE = 'http://localhost:3000/api';
+
+  const clientSelect = document.getElementById('client-select');
+  const selectClientBtn = document.getElementById('select-client-btn');
+  const clearSelectionBtn = document.getElementById('clear-selection-btn');
+  const statusMessage = document.getElementById('status-message');
+
+  const selectedClientInfoDiv = document.getElementById('selected-client-info');
+  const selectedClientName = document.getElementById('selected-client-name');
+  const selectedClientStatus = document.getElementById('selected-client-status');
+  const selectedClientLastActivity = document.getElementById('selected-client-last-activity');
+  const selectedClientSessionAge = document.getElementById('selected-client-session-age');
+
+  const receiverInput = document.getElementById('receiver-input');
+  const messageTextarea = document.getElementById('message-textarea');
+  const linkPreviewCheckbox = document.getElementById('link-preview-checkbox');
+  const sendMessageBtn = document.getElementById('send-message-btn');
+
+  // Utility for safe JSON fetching
+  async function fetchJson(url, options = {}) {
+    const resp = await fetch(url, options);
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await resp.text();
+      throw new Error(`Expected JSON but got: ${text.substring(0, 200)}`);
+    }
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || resp.statusText || 'Unknown error');
+    }
+    return resp.json();
+  }
+
+  // Load connected clients
+  async function loadConnectedClients() {
+    try {
+      const data = await fetchJson(`${API_BASE}/clients/connected`);
+      clientSelect.innerHTML = '<option value="">-- Select Client --</option>';
+      if (data.clients.length === 0) {
+        clientSelect.innerHTML = '<option value="">No connected clients available</option>';
+      } else {
+        data.clients.forEach(client => {
+          const option = document.createElement('option');
+          option.value = client.name;
+          option.textContent = `${client.name} (Last Activity: ${new Date(client.lastActivity).toLocaleString()})`;
+          clientSelect.appendChild(option);
+        });
+      }
+      setStatus(`Loaded ${data.clients.length} connected clients`);
+    } catch (err) {
+      clientSelect.innerHTML = '<option value="">Error loading clients</option>';
+      setStatus(`Error loading clients: ${err.message}`);
+    }
+  }
+
+  // Get selected client info
+  async function loadSelectedClient() {
+    try {
+      const data = await fetchJson(`${API_BASE}/selected-device`);
+      if (!data.selectedDevice) {
+        selectedClientInfoDiv.style.display = 'none';
+        setStatus('No device currently selected.');
+      } else {
+        selectedClientInfoDiv.style.display = 'block';
+        selectedClientName.textContent = data.selectedDevice;
+        selectedClientStatus.textContent = data.status || 'N/A';
+        selectedClientLastActivity.textContent = data.lastActivity ? new Date(data.lastActivity).toLocaleString() : 'N/A';
+        selectedClientSessionAge.textContent = data.sessionAge || 'N/A';
+        setStatus(`Selected client: ${data.selectedDevice}`);
+      }
+    } catch (err) {
+      selectedClientInfoDiv.style.display = 'none';
+      setStatus(`Error fetching selected client: ${err.message}`);
+    }
+  }
+
+  // Select a client
+  async function selectClient() {
+    const clientName = clientSelect.value;
+    if (!clientName) {
+      setStatus('Please select a client to activate.');
+      return;
+    }
+    try {
+      const data = await fetchJson(`${API_BASE}/select-device`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceName: clientName }),
+      });
+      setStatus(`Selected client: ${clientName}`);
+      await loadSelectedClient();
+    } catch (err) {
+      setStatus(`Error selecting client: ${err.message}`);
+    }
+  }
+
+  // Clear selected client
+  async function clearSelectedClient() {
+    try {
+      const data = await fetchJson(`${API_BASE}/clear-selected-device`, {
+        method: 'POST'
+      });
+      setStatus(data.message || 'Selection cleared.');
+      selectedClientInfoDiv.style.display = 'none';
+    } catch (err) {
+      setStatus(`Error clearing selected client: ${err.message}`);
+    }
+  }
+
+  // Send message
+  async function sendMessage() {
+    const receiver = receiverInput.value.trim();
+    const text = messageTextarea.value.trim();
+    const linkPreview = linkPreviewCheckbox.checked;
+
+    if (!receiver) {
+      setStatus('Please enter a receiver phone number.');
+      return;
+    }
+    if (!text) {
+      setStatus('Please enter a message.');
+      return;
+    }
+
+    try {
+      // Adjust request body keys to match backend expectations if necessary
+      const body = {
+        receiver,
+        message_type: 'text',
+        text_message: text,
+        text_with_link_preview: linkPreview ? 'on' : 'off',
+      };
+
+      const data = await fetchJson(`${API_BASE}/messages/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      setStatus(`Message sent successfully (ID: ${data.messageId})`);
+      messageTextarea.value = '';
+      receiverInput.value = '';
+    } catch (err) {
+      setStatus(`Failed to send message: ${err.message}`);
+    }
+  }
+
+  function setStatus(msg) {
+    statusMessage.textContent = msg;
+  }
+
+  // Event listeners
+  selectClientBtn.addEventListener('click', selectClient);
+  clearSelectionBtn.addEventListener('click', clearSelectedClient);
+  sendMessageBtn.addEventListener('click', sendMessage);
+
+  // Initialize UI
+  loadConnectedClients();
+  loadSelectedClient();
+
+  // Optionally refresh connected clients every minute
+  setInterval(loadConnectedClients, 60000);
+  setInterval(loadSelectedClient, 60000);
+</script>
+
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WhatsApp Client Manager</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px auto;
+    max-width: 600px;
+    padding: 10px;
+    background: #f8f9fa;
+  }
+  h1 {
+    text-align: center;
+  }
+  section {
+    background: #fff;
+    padding: 15px 20px;
+    border-radius: 5px;
+    margin-bottom: 25px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.1);
+  }
+  label {
+    display: block;
+    margin-bottom: 8px;
+    margin-top: 15px;
+    font-weight: bold;
+  }
+  select, input[type="text"], textarea {
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    margin-top: 5px;
+  }
+  button {
+    margin-top: 15px;
+    padding: 10px 20px;
+    background: #0d6efd;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #0b5ed7;
+  }
+  #status-message {
+    margin-top: 10px;
+    color: #333;
+    min-height: 20px;
+  }
+  .client-info {
+    margin-top: 10px;
+    background: #e9ecef;
+    padding: 10px;
+    border-radius: 4px;
+  }
+  .client-info b {
+    display: inline-block;
+    width: 120px;
+  }
+  input[type="checkbox"] {
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<h1>WhatsApp Client Manager</h1>
+
+<section id="client-selection-section">
+  <h2>Select Active Client</h2>
+  <label for="client-select">Connected Clients:</label>
+  <select id="client-select">
+    <option value="">-- Select Client --</option>
+  </select>
+  <div id="status-message"></div>
+
+  <div id="selected-client-info" class="client-info" style="display:none;">
+    <h3>Selected Client Info:</h3>
+    <p><b>Name:</b> <span id="selected-client-name"></span></p>
+    <p><b>Status:</b> <span id="selected-client-status"></span></p>
+    <p><b>Last Activity:</b> <span id="selected-client-last-activity"></span></p>
+    <p><b>Session Age:</b> <span id="selected-client-session-age"></span></p>
+  </div>
+</section>
+
+<section id="message-sender-section">
+  <h2>Send Message</h2>
+
+  <label for="receiver-input">Receiver Phone Number (without country code + suffix, e.g. 919999999999):</label>
+  <input type="text" id="receiver-input" placeholder="e.g., 1234567890" value="91"/>
+
+  <label for="message-textarea">Message Text:</label>
+  <textarea id="message-textarea" rows="4" placeholder="Type your message here..."></textarea>
+
+  <label>
+    <input type="checkbox" id="link-preview-checkbox" />
+    Enable Link Preview
+  </label>
+
+  <button id="send-message-btn">Send Message</button>
+</section>
+
+<script defer>
+  const API_BASE = 'http://localhost:3000/api';
+
+  const clientSelect = document.getElementById('client-select');
+  const statusMessage = document.getElementById('status-message');
+
+  const selectedClientInfoDiv = document.getElementById('selected-client-info');
+  const selectedClientName = document.getElementById('selected-client-name');
+  const selectedClientStatus = document.getElementById('selected-client-status');
+  const selectedClientLastActivity = document.getElementById('selected-client-last-activity');
+  const selectedClientSessionAge = document.getElementById('selected-client-session-age');
+
+  const receiverInput = document.getElementById('receiver-input');
+  const messageTextarea = document.getElementById('message-textarea');
+  const linkPreviewCheckbox = document.getElementById('link-preview-checkbox');
+  const sendMessageBtn = document.getElementById('send-message-btn');
+
+  // Utility for safe JSON fetching
+  async function fetchJson(url, options = {}) {
+    const resp = await fetch(url, options);
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const text = await resp.text();
+      throw new Error(`Expected JSON but got: ${text.substring(0, 200)}`);
+    }
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || resp.statusText || 'Unknown error');
+    }
+    return resp.json();
+  }
+
+  // Load connected clients into dropdown
+  async function loadConnectedClients() {
+    try {
+      const data = await fetchJson(`${API_BASE}/clients/connected`);
+      clientSelect.innerHTML = '<option value="">-- Select Client --</option>';
+      if (data.clients.length === 0) {
+        clientSelect.innerHTML = '<option value="">No connected clients available</option>';
+      } else {
+        data.clients.forEach(client => {
+          const option = document.createElement('option');
+          option.value = client.name;
+          option.textContent = `${client.name} (Last Activity: ${new Date(client.lastActivity).toLocaleString()})`;
+          clientSelect.appendChild(option);
+        });
+      }
+      setStatus(`Loaded ${data.clients.length} connected clients`);
+    } catch (err) {
+      clientSelect.innerHTML = '<option value="">Error loading clients</option>';
+      setStatus(`Error loading clients: ${err.message}`);
+    }
+  }
+
+  // Load current selected client info
+  async function loadSelectedClient() {
+    try {
+      const data = await fetchJson(`${API_BASE}/selected-device`);
+      if (!data.selectedDevice) {
+        selectedClientInfoDiv.style.display = 'none';
+        setStatus('No device currently selected.');
+        clientSelect.value = ""; // set dropdown to default
+      } else {
+        selectedClientInfoDiv.style.display = 'block';
+        selectedClientName.textContent = data.selectedDevice;
+        selectedClientStatus.textContent = data.status || 'N/A';
+        selectedClientLastActivity.textContent = data.lastActivity ? new Date(data.lastActivity).toLocaleString() : 'N/A';
+        selectedClientSessionAge.textContent = data.sessionAge || 'N/A';
+        setStatus(`Selected client: ${data.selectedDevice}`);
+        clientSelect.value = data.selectedDevice;
+      }
+    } catch (err) {
+      selectedClientInfoDiv.style.display = 'none';
+      setStatus(`Error fetching selected client: ${err.message}`);
+    }
+  }
+
+  // Select a client dynamically
+  async function selectClient(clientName) {
+    if (!clientName) return;
+    try {
+      await fetchJson(`${API_BASE}/select-device`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceName: clientName }),
+      });
+      setStatus(`Selected client: ${clientName}`);
+    } catch (err) {
+      setStatus(`Error selecting client: ${err.message}`);
+    }
+  }
+
+  // Clear selected client dynamically
+  async function clearSelectedClient() {
+    try {
+      const data = await fetchJson(`${API_BASE}/clear-selected-device`, {
+        method: 'POST',
+      });
+      setStatus(data.message || 'Selection cleared.');
+    } catch (err) {
+      setStatus(`Error clearing selection: ${err.message}`);
+    }
+  }
+
+  // Send message functionality
+  async function sendMessage() {
+    const receiver = receiverInput.value.trim();
+    const text = messageTextarea.value.trim();
+    const linkPreview = linkPreviewCheckbox.checked;
+
+    if (!receiver) {
+      setStatus('Please enter a receiver phone number.');
+      return;
+    }
+    if (!text) {
+      setStatus('Please enter a message.');
+      return;
+    }
+
+    try {
+      const body = {
+        receiver,
+        message_type: 'text',
+        text_message: text,
+        text_with_link_preview: linkPreview ? 'on' : 'off',
+      };
+
+      const data = await fetchJson(`${API_BASE}/messages/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      setStatus(`Message sent successfully (ID: ${data.messageId})`);
+      messageTextarea.value = '';
+      receiverInput.value = '';
+    } catch (err) {
+      setStatus(`Failed to send message: ${err.message}`);
+    }
+  }
+
+  function setStatus(msg) {
+    statusMessage.textContent = msg;
+  }
+
+  // Event listener for client selection changes
+  clientSelect.addEventListener('change', async () => {
+    const selectedValue = clientSelect.value;
+    if (selectedValue) {
+      await selectClient(selectedValue);
+    } else {
+      await clearSelectedClient();
+    }
+    await loadSelectedClient();
+  });
+
+  sendMessageBtn.addEventListener('click', sendMessage);
+
+  // Initialize UI on page load
+  loadConnectedClients();
+  loadSelectedClient();
+
+  // Optional refresh every minute
+  setInterval(loadConnectedClients, 60000);
+  setInterval(loadSelectedClient, 60000);
+</script>
+
+</body>
+</html>
