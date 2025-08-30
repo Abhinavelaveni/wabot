@@ -1,17 +1,30 @@
 const express = require("express");
 const bodyParser = require("body-parser");
 const venom = require("venom-bot");
-const sqlite3 = require("sqlite3").verbose();
 const cors = require("cors");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const multer = require("multer");
 const fs = require("fs");
 const { rimraf } = require("rimraf");
-const util = require("util");
 const rateLimit = require("express-rate-limit");
 const cron = require("node-cron");
 const axios = require("axios");
+const mongoose = require('mongoose');
+
+// Import MongoDB models and connection
+const { 
+  connectDB, 
+  Client, 
+  Log, 
+  File, 
+  Message, 
+  ScheduledMessage, 
+  QuickReply, 
+  QuickReplyFile, 
+  SendLog, 
+  Webhook 
+} = require("./models");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,138 +38,8 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// Database Setup
-const db = new sqlite3.Database(
-  "./clients.db",
-  sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
-  (err) => {
-    if (err) {
-      console.error("Error connecting to SQLite database:", err.message);
-    } else {
-      console.log("Connected to the SQLite database.");
-      initializeDatabase();
-      ensureCaptionColumn();
-      initializeAllClients();
-    }
-  }
-);
-
-function initializeDatabase() {
-  db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS clients (
-      name TEXT PRIMARY KEY,
-      number TEXT NOT NULL UNIQUE,
-      status TEXT DEFAULT 'disconnected',
-      autoReplyEnabled INTEGER DEFAULT 1,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      lastActive DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      clientName TEXT NOT NULL,
-      level TEXT NOT NULL,
-      message TEXT NOT NULL,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(clientName) REFERENCES clients(name) ON DELETE CASCADE
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL,
-      originalname TEXT NOT NULL,
-      mimetype TEXT NOT NULL,
-      size INTEGER NOT NULL,
-      path TEXT NOT NULL,
-      uploadDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-      clientName TEXT,
-      FOREIGN KEY(clientName) REFERENCES clients(name) ON DELETE SET NULL
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      clientName TEXT NOT NULL,
-      receiver TEXT NOT NULL,
-      messageType TEXT NOT NULL,
-      content TEXT,
-      status TEXT DEFAULT 'sent',
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(clientName) REFERENCES clients(name) ON DELETE CASCADE
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS scheduled_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      messageId TEXT,
-      clientName TEXT NOT NULL,
-      receiver TEXT NOT NULL,
-      messageType TEXT NOT NULL,
-      content TEXT,
-      scheduledTime DATETIME NOT NULL,
-      status TEXT DEFAULT 'pending',
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(clientName) REFERENCES clients(name) ON DELETE CASCADE
-    )`);
-
-    // Quick replies tables
-    db.run(`CREATE TABLE IF NOT EXISTS quick_replies (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      deviceName TEXT NOT NULL,
-      key TEXT NOT NULL,
-      reply TEXT,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(deviceName, key),
-      FOREIGN KEY(deviceName) REFERENCES clients(name) ON DELETE CASCADE
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS quick_reply_files (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      quickReplyId INTEGER NOT NULL,
-      filePath TEXT NOT NULL,
-      fileName TEXT,
-      mimetype TEXT,
-      uploadDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(quickReplyId) REFERENCES quick_replies(id) ON DELETE CASCADE
-    )`);
-
-    // Supporting tables for send logs & webhooks
-    db.run(`CREATE TABLE IF NOT EXISTS send_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      deviceName TEXT NOT NULL,
-      quickReplyKey TEXT,
-      number TEXT NOT NULL,
-      type TEXT NOT NULL,
-      success INTEGER NOT NULL DEFAULT 0,
-      result TEXT,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS webhooks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      url TEXT NOT NULL,
-      enabled INTEGER DEFAULT 1,
-      secret TEXT,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-  });
-}
-
-// Ensure `caption` column exists in quick_reply_files
-function ensureCaptionColumn() {
-  db.all("PRAGMA table_info(quick_reply_files);", (err, columns) => {
-    if (err) {
-      console.error("Failed to check quick_reply_files schema:", err);
-      return;
-    }
-    const hasCaption = columns.some(col => col.name === "caption");
-    if (!hasCaption) {
-      db.run("ALTER TABLE quick_reply_files ADD COLUMN caption TEXT;", (err2) => {
-        if (err2) console.error("Failed to add caption column:", err2);
-        else console.log("Added missing `caption` column to quick_reply_files");
-      });
-    }
-  });
-}
-
+// Connect to MongoDB
+connectDB();
 
 // In-memory store for clients
 const clients = new Map();
@@ -168,15 +51,21 @@ function generateClientName() {
   return `client-${uuidv4().substring(0, 8)}`;
 }
 
-function addLog(clientName, level, message) {
-  const query = "INSERT INTO logs (clientName, level, message) VALUES (?, ?, ?)";
-  db.run(query, [clientName, level, message], (err) => {
-    if (err) console.error("Error adding log:", err.message);
-  });
-
-  const now = new Date();
-  const localTime = formatLocalTime(now);
-  console.log(`[${localTime}] [${level}] Client ${clientName}: ${message}`);
+async function addLog(clientName, level, message) {
+  try {
+    const log = new Log({
+      clientName,
+      level,
+      message
+    });
+    await log.save();
+    
+    const now = new Date();
+    const localTime = formatLocalTime(now);
+    console.log(`[${localTime}] [${level}] Client ${clientName}: ${message}`);
+  } catch (err) {
+    console.error("Error adding log:", err.message);
+  }
 }
 
 function formatLocalTime(date) {
@@ -223,38 +112,45 @@ function canSendNow(device, number) {
   return false;
 }
 
-// Promisify your db.run for convenience
-const dbRun = util.promisify(db.run.bind(db));
-
 // VENOM-BOT INTEGRATION (initializeClient + attach handler)
 async function initializeClient(clientName) {
-  return new Promise((resolve, reject) => {
-    if (clients.has(clientName)) {
-      const c = clients.get(clientName);
-      if (c.status === "connected") {
-        addLog(clientName, "warn", `Client ${clientName} is already connected.`);
-        return resolve();
+  return new Promise(async (resolve, reject) => {
+    try {
+      // if client already exists in memory
+      if (clients.has(clientName)) {
+        const c = clients.get(clientName);
+        if (c.status === "connected") {
+          addLog(clientName, "warn", `Client ${clientName} is already connected.`);
+          return resolve();
+        }
+        try { c.client.close(); } catch { }
+        clients.delete(clientName);
       }
-      try { c.client.close(); } catch { }
-      clients.delete(clientName);
-    }
 
-    db.get("SELECT * FROM clients WHERE name = ?", [clientName], async (err, clientData) => {
-      if (err || !clientData) {
-        addLog(clientName, "error", `Database error: ${err ? err.message : "No client data"}`);
-        return reject(new Error(err ? err.message : "Client not found"));
+      // fetch client data from DB (async/await, no callbacks)
+      const clientData = await Client.findOne({ name: clientName });
+      if (!clientData) {
+        addLog(clientName, "error", `Database error: No client data found`);
+        return reject(new Error("Client not found"));
       }
 
       let sessionQR = null;
-      viciousVenomStart();
 
       function viciousVenomStart() {
         venom.create(
           clientName,
           (base64Qr, asciiQR, attempts, urlCode) => {
             sessionQR = base64Qr;
-            clients.set(clientName, { client: null, status: "qr_received", qr: base64Qr, lastActivity: new Date() });
-            db.run("UPDATE clients SET status = ?, lastActive = CURRENT_TIMESTAMP WHERE name = ?", ["qr_received", clientName]);
+            clients.set(clientName, {
+              client: null,
+              status: "qr_received",
+              qr: base64Qr,
+              lastActivity: new Date()
+            });
+            Client.updateOne(
+              { name: clientName },
+              { status: "qr_received", lastActive: new Date() }
+            ).exec();
             addLog(clientName, "info", `Venom QR received`);
           },
           undefined,
@@ -264,49 +160,81 @@ async function initializeClient(clientName) {
             disableWelcome: true,
             updatesLog: false,
           }
-        ).then(client => {
-          clients.set(clientName, { client, status: "connected", qr: null, lastActivity: new Date() });
-          attachQuickReplyHandlerEnhanced(client, clientName);
-          db.run("UPDATE clients SET status = ?, lastActive = CURRENT_TIMESTAMP WHERE name = ?", ["connected", clientName]);
-          addLog(clientName, "info", `${clientName} is connected via venom!`);
-          resolve();
-        }).catch(error => {
-          addLog(clientName, "error", `Error initializing venom: ${error.message}`);
-          reject(error);
-        });
+        )
+          .then(client => {
+            clients.set(clientName, {
+              client,
+              status: "connected",
+              qr: null,
+              lastActivity: new Date()
+            });
+            attachQuickReplyHandlerEnhanced(client, clientName);
+            Client.updateOne(
+              { name: clientName },
+              { status: "connected", lastActive: new Date() }
+            ).exec();
+            addLog(clientName, "info", `${clientName} is connected via venom!`);
+            resolve();
+          })
+          .catch(error => {
+            addLog(clientName, "error", `Error initializing venom: ${error.message}`);
+            reject(error);
+          });
       }
-    });
-  });
-}
 
-async function initializeAllClients() {
-  db.all("SELECT name FROM clients", [], async (err, rows) => {
-    if (err) return console.error("Failed to load clients:", err);
-    for (const row of rows) {
-      try {
-        await initializeClient(row.name);
-      } catch (err) {
-        console.error(`❌ Failed to initialize client ${row.name}: ${err.message}`);
-      }
-      await new Promise((r) => setTimeout(r, 7000));
+      viciousVenomStart();
+
+    } catch (err) {
+      addLog(clientName, "error", `Database error: ${err.message}`);
+      reject(err);
     }
   });
 }
 
+async function initializeAllClients() {
+  try {
+    const clientsData = await Client.find({});
+    console.log(`📡 Found ${clientsData.length} clients in DB`);
+
+    for (const client of clientsData) {
+      try {
+        console.log(`🔄 Initializing client: ${client.name}`);
+        await initializeClient(client.name);
+        console.log(`✅ Client ${client.name} initialized successfully`);
+      } catch (err) {
+        console.error(`❌ Failed to initialize client ${client.name}: ${err.message}`);
+      }
+
+      // Delay between initializations to avoid overload
+      await delay(7000);
+    }
+  } catch (err) {
+    console.error("❌ Failed to load clients:", err);
+  }
+}
+
+// small helper for readability
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
 // --- Webhook helper ---
 async function fireWebhooks(payload) {
-  db.all('SELECT id, url, enabled, secret FROM webhooks WHERE enabled = 1', [], (err, rows) => {
-    if (err || !rows) return;
-    rows.forEach(async (row) => {
+  try {
+    const webhooks = await Webhook.find({ enabled: true });
+    for (const webhook of webhooks) {
       try {
         const headers = {};
-        if (row.secret) headers['x-webhook-signature'] = row.secret;
-        await axios.post(row.url, payload, { headers, timeout: 5000 });
+        if (webhook.secret) headers['x-webhook-signature'] = webhook.secret;
+        await axios.post(webhook.url, payload, { headers, timeout: 5000 });
       } catch (e) {
         console.error('Webhook error', e.message);
       }
-    });
-  });
+    }
+  } catch (e) {
+    console.error('Error fetching webhooks', e.message);
+  }
 }
 
 // --- File upload configuration ---
@@ -326,49 +254,51 @@ const quickReplyUpload = multer({ storage: quickReplyStorage, limits: { fileSize
 
 // --- Endpoints (clients & file manager) ---
 
-app.get("/clients", (_, res) => {
-  db.all("SELECT * FROM clients ORDER BY createdAt DESC", [], (err, rows) => {
-    if (err) {
-      console.error("Error fetching clients:", err.message);
-      return res.status(500).json({ error: "Failed to fetch clients" });
-    }
-    const enhancedRows = rows.map((row) => {
+app.get("/clients", async (_, res) => {
+  try {
+    const clientsData = await Client.find({}).sort({ createdAt: -1 });
+    const enhancedRows = await Promise.all(clientsData.map(async (row) => {
       const clientData = clients.get(row.name);
       return {
-        ...row,
+        ...row.toObject(),
         runtimeStatus: clientData?.status || row.status || "not_initialized",
         lastActivity: formatLocalTime(clientData?.lastActivity || new Date(row.lastActive)),
         qrAvailable: !!clientData?.qr,
         isSelected: row.name === selectedDevice,
       };
-    });
+    }));
     res.json(enhancedRows);
-  });
+  } catch (err) {
+    console.error("Error fetching clients:", err.message);
+    res.status(500).json({ error: "Failed to fetch clients" });
+  }
 });
 
-app.get("/clients/:name", (req, res) => {
+app.get("/clients/:name", async (req, res) => {
   const clientName = req.params.name;
-  db.get("SELECT * FROM clients WHERE name = ?", [clientName], (err, row) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch client" });
-    if (!row) return res.status(404).json({ error: "Client not found" });
+  try {
+    const clientData = await Client.findOne({ name: clientName });
+    if (!clientData) return res.status(404).json({ error: "Client not found" });
 
-    const clientData = clients.get(clientName);
+    const clientRuntimeData = clients.get(clientName);
     res.json({
-      ...row,
-      runtimeStatus: clientData?.status || "not_initialized",
-      lastActivity: formatLocalTime(clientData?.lastActivity || new Date(row.lastActive)),
-      qrAvailable: !!clientData?.qr,
-      sessionAge: clientData?.lastActivity ? Math.floor((new Date() - clientData.lastActivity) / 1000) + "s" : null,
+      ...clientData.toObject(),
+      runtimeStatus: clientRuntimeData?.status || "not_initialized",
+      lastActivity: formatLocalTime(clientRuntimeData?.lastActivity || new Date(clientData.lastActive)),
+      qrAvailable: !!clientRuntimeData?.qr,
+      sessionAge: clientRuntimeData?.lastActivity ? Math.floor((new Date() - clientRuntimeData.lastActivity) / 1000) + "s" : null,
       isSelected: clientName === selectedDevice,
     });
-  });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch client" });
+  }
 });
 
-app.post("/clients/initialize/:name", (req, res) => {
+app.post("/clients/initialize/:name", async (req, res) => {
   const clientName = req.params.name;
-  db.get("SELECT * FROM clients WHERE name = ?", [clientName], (err, row) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch client" });
-    if (!row) return res.status(404).json({ error: "Client not found" });
+  try {
+    const clientData = await Client.findOne({ name: clientName });
+    if (!clientData) return res.status(404).json({ error: "Client not found" });
 
     const existingClient = clients.get(clientName);
     if (existingClient && existingClient.status === "connected") {
@@ -380,7 +310,9 @@ app.post("/clients/initialize/:name", (req, res) => {
     }
     initializeClient(clientName);
     res.json({ message: `Client ${clientName} is initializing`, status: "initializing" });
-  });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch client" });
+  }
 });
 
 app.get("/clients/:name/qr", async (req, res) => {
@@ -420,36 +352,46 @@ app.post("/clients/:name/logout", async (req, res) => {
       selectedDevice = null;
       addLog(clientName, "info", `Device ${clientName} was deselected due to logout`);
     }
-    db.run("UPDATE clients SET status = ?, lastActive = CURRENT_TIMESTAMP WHERE name = ?", ["disconnected", clientName], (err) => {
-      if (err) return res.status(500).json({ error: "Failed to update status" });
-      addLog(clientName, "info", `Client ${clientName} logged out`);
-      res.json({ message: "Logged out successfully", status: "disconnected" });
-    });
+    await Client.updateOne({ name: clientName }, { status: "disconnected", lastActive: new Date() });
+    addLog(clientName, "info", `Client ${clientName} logged out`);
+    res.json({ message: "Logged out successfully", status: "disconnected" });
   } catch (error) {
     res.status(500).json({ error: "Venom-bot logout error", details: error.message });
   }
 });
 
-app.post("/clients", (req, res) => {
+app.post("/clients", async (req, res) => {
   const { name, number } = req.body;
   if (!number) return res.status(400).json({ error: "Phone number is required" });
   if (!/^\d+$/.test(number)) return res.status(400).json({ error: "Phone number should contain only digits", example: "1234567890" });
   const clientName = name || generateClientName();
-  const insertQuery = "INSERT INTO clients (name, number) VALUES (?, ?)";
-  db.run(insertQuery, [clientName, number], function (err) {
-    if (err) {
-      if (err.message.includes("UNIQUE constraint failed")) {
-        if (err.message.includes("name")) return res.status(400).json({ error: "Device name already exists" });
-        else return res.status(400).json({ error: "Phone number already registered" });
-      }
-      return res.status(500).json({ error: "Failed to add device" });
-    }
+  
+  try {
+    const client = new Client({
+      name: clientName,
+      number
+    });
+    await client.save();
     addLog(clientName, "info", `New client created with name ${clientName}`);
-    res.status(201).json({ message: "Device added successfully", client: { name: clientName, number, status: "disconnected", createdAt: new Date().toISOString() } });
-  });
+    res.status(201).json({ 
+      message: "Device added successfully", 
+      client: { 
+        name: clientName, 
+        number, 
+        status: "disconnected", 
+        createdAt: new Date().toISOString() 
+      } 
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      if (err.keyPattern.name) return res.status(400).json({ error: "Device name already exists" });
+      else return res.status(400).json({ error: "Phone number already registered" });
+    }
+    return res.status(500).json({ error: "Failed to add device" });
+  }
 });
 
-app.delete("/clients/:name", (req, res) => {
+app.delete("/clients/:name", async (req, res) => {
   const clientName = req.params.name;
   if (clients.has(clientName)) {
     const c = clients.get(clientName);
@@ -461,71 +403,120 @@ app.delete("/clients/:name", (req, res) => {
     addLog(clientName, "info", `Device ${clientName} was deselected due to deletion`);
   }
   const sessionPath = path.join(__dirname, `tokens/${clientName}`);
-  rimraf(sessionPath)
-    .then(() => {
-      db.run("DELETE FROM clients WHERE name = ?", [clientName], function (err) {
-        if (err) return res.status(500).json({ error: "Failed to delete device" });
-        if (this.changes === 0) return res.status(404).json({ error: "Client not found" });
-        addLog(clientName, "info", `Client ${clientName} deleted`);
-        res.json({ message: "Device deleted successfully" });
-      });
-    })
-    .catch((err) => {
-      res.status(500).json({ error: "Failed to delete session folder" });
-    });
+  
+  try {
+    await rimraf(sessionPath);
+    await Client.deleteOne({ name: clientName });
+    addLog(clientName, "info", `Client ${clientName} deleted`);
+    res.json({ message: "Device deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete device" });
+  }
 });
 
-app.get("/clients/:name/logs", (req, res) => {
+app.get("/clients/:name/logs", async (req, res) => {
   const clientName = req.params.name;
-  const limit = req.query.limit || 50;
-  db.all("SELECT * FROM logs WHERE clientName = ? ORDER BY timestamp DESC LIMIT ?", [clientName, limit], (err, rows) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch logs" });
-    res.json(rows);
-  });
+  const limit = parseInt(req.query.limit) || 50;
+  try {
+    const logs = await Log.find({ clientName })
+      .sort({ timestamp: -1 })
+      .limit(limit);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch logs" });
+  }
 });
 
-app.get("/logs/recent", (req, res) => {
-  const limit = req.query.limit || 10;
-  db.all(`SELECT l.*, c.name as clientName, c.number as clientNumber FROM logs l JOIN clients c ON l.clientName = c.name ORDER BY l.timestamp DESC LIMIT ?`, [limit], (err, rows) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch logs" });
-    res.json(rows.map(log => ({ ...log, backendTime: formatLocalTime(new Date(log.timestamp)) })));
-  });
+app.get("/logs/recent", async (req, res) => {
+  const limit = parseInt(req.query.limit) || 10;
+  try {
+    const logs = await Log.aggregate([
+      {
+        $lookup: {
+          from: "clients",
+          localField: "clientName",
+          foreignField: "name",
+          as: "client"
+        }
+      },
+      { $unwind: "$client" },
+      { 
+        $project: {
+          _id: 1,
+          clientName: 1,
+          level: 1,
+          message: 1,
+          timestamp: 1,
+          clientNumber: "$client.number"
+        }
+      },
+      { $sort: { timestamp: -1 } },
+      { $limit: limit }
+    ]);
+    
+    const formattedLogs = logs.map(log => ({ 
+      ...log, 
+      backendTime: formatLocalTime(new Date(log.timestamp)) 
+    }));
+    res.json(formattedLogs);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch logs" });
+  }
 });
 
 // File manager endpoints (upload/get/download/delete)
-app.post("/api/files/upload", upload.array("files"), (req, res) => {
+app.post("/api/files/upload", upload.array("files"), async (req, res) => {
   if (!req.files || req.files.length === 0) {
     addLog("server", "error", "No files were uploaded");
     return res.status(400).json({ error: "No files were uploaded" });
   }
-  const files = req.files.map((file) => ({
-    filename: file.filename,
-    originalname: file.originalname,
-    mimetype: file.mimetype,
-    size: file.size,
-    path: file.path,
-    uploadDate: new Date().toISOString(),
-  }));
-  const stmt = db.prepare("INSERT INTO files (filename, originalname, mimetype, size, path) VALUES (?, ?, ?, ?, ?)");
-  db.serialize(() => {
-    files.forEach((file) => {
-      stmt.run([file.filename, file.originalname, file.mimetype, file.size, file.path], function (err) {
-        if (err) addLog("server", "error", `Error saving file info: ${err.message}`);
-      });
+  
+  try {
+    const files = req.files.map((file) => ({
+      filename: file.filename,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+      path: file.path,
+      uploadDate: new Date()
+    }));
+    
+    await File.insertMany(files);
+    addLog("server", "info", "Files uploaded successfully");
+    res.json({ 
+      message: "Files uploaded successfully", 
+      files: files.map((f) => ({ 
+        id: f.filename, 
+        name: f.originalname, 
+        size: f.size, 
+        type: f.mimetype, 
+        uploadDate: f.uploadDate 
+      })) 
     });
-    stmt.finalize();
-  });
-  addLog("server", "info", "Files uploaded successfully");
-  res.json({ message: "Files uploaded successfully", files: files.map((f) => ({ id: f.filename, name: f.originalname, size: f.size, type: f.mimetype, uploadDate: f.uploadDate })) });
+  } catch (err) {
+    addLog("server", "error", `Error saving file info: ${err.message}`);
+    res.status(500).json({ error: "Failed to upload files" });
+  }
 });
 
-app.get("/api/files", (req, res) => {
-  db.all("SELECT * FROM files ORDER BY uploadDate DESC", [], (err, files) => {
-    if (err) { addLog("server", "error", `Error fetching files: ${err.message}`); return res.status(500).json({ error: "Failed to fetch files" }); }
-    const formattedFiles = files.map((file) => ({ id: file.id, name: file.originalname, size: file.size, type: file.mimetype, uploadDate: formatLocalTime(file.uploadDate), path: file.path, icon: getFileIcon(file.originalname) }));
+app.get("/api/files", async (req, res) => {
+  try {
+    const files = await File.find({}).sort({ uploadDate: -1 });
+    const formattedFiles = files.map((file) => ({ 
+      id: file._id, 
+      name: file.originalname, 
+      size: file.size, 
+      type: file.mimetype, 
+      uploadDate: formatLocalTime(file.uploadDate), 
+      path: file.path, 
+      icon: getFileIcon(file.originalname) 
+    }));
     addLog("server", "info", "Fetched all files successfully");
     res.json(formattedFiles);
-  });
+  } catch (err) {
+    addLog("server", "error", `Error fetching files: ${err.message}`);
+    res.status(500).json({ error: "Failed to fetch files" });
+  }
 });
 
 function getFileIcon(filename) {
@@ -534,63 +525,109 @@ function getFileIcon(filename) {
   return icons[extension] || "file-earmark";
 }
 
-app.get("/api/files/download/:id", (req, res) => {
+app.get("/api/files/download/:id", async (req, res) => {
   const fileId = req.params.id;
-  db.get("SELECT * FROM files WHERE id = ?", [fileId], (err, file) => {
-    if (err) { addLog("server", "error", `Error finding file: ${err.message}`); return res.status(500).json({ error: "Error finding file" }); }
-    if (!file) { addLog("server", "warn", `File not found with ID: ${fileId}`); return res.status(404).json({ error: "File not found" }); }
+  try {
+    const file = await File.findById(fileId);
+    if (!file) {
+      addLog("server", "warn", `File not found with ID: ${fileId}`);
+      return res.status(404).json({ error: "File not found" });
+    }
+    
     res.download(file.path, file.originalname, (err) => {
-      if (err) { addLog("server", "error", `Error downloading file: ${err.message}`); res.status(500).json({ error: "Error downloading file" }); }
-      else addLog("server", "info", `File downloaded successfully: ${file.originalname}`);
+      if (err) {
+        addLog("server", "error", `Error downloading file: ${err.message}`);
+        res.status(500).json({ error: "Error downloading file" });
+      } else {
+        addLog("server", "info", `File downloaded successfully: ${file.originalname}`);
+      }
     });
-  });
+  } catch (err) {
+    addLog("server", "error", `Error finding file: ${err.message}`);
+    res.status(500).json({ error: "Error finding file" });
+  }
 });
 
-app.delete("/api/files/:id", (req, res) => {
+app.delete("/api/files/:id", async (req, res) => {
   const fileId = req.params.id;
-  db.get("SELECT * FROM files WHERE id = ?", [fileId], (err, file) => {
-    if (err) { addLog("server", "error", `Error finding file: ${err.message}`); return res.status(500).json({ error: "Error finding file" }); }
-    if (!file) { addLog("server", "warn", `File not found with ID: ${fileId}`); return res.status(404).json({ error: "File not found" }); }
-    fs.unlink(file.path, (err) => {
-      if (err) { addLog("server", "error", `Error deleting file: ${err.message}`); return res.status(500).json({ error: "Error deleting file" }); }
-      db.run("DELETE FROM files WHERE id = ?", [fileId], (err) => {
-        if (err) { addLog("server", "error", `Error deleting file record: ${err.message}`); return res.status(500).json({ error: "Error deleting file record" }); }
-        addLog("server", "info", `File deleted successfully: ${file.originalname}`);
-        res.json({ message: "File deleted successfully" });
-      });
+  try {
+    const file = await File.findById(fileId);
+    if (!file) {
+      addLog("server", "warn", `File not found with ID: ${fileId}`);
+      return res.status(404).json({ error: "File not found" });
+    }
+    
+    fs.unlink(file.path, async (err) => {
+      if (err) {
+        addLog("server", "error", `Error deleting file: ${err.message}`);
+        return res.status(500).json({ error: "Error deleting file" });
+      }
+      
+      await File.findByIdAndDelete(fileId);
+      addLog("server", "info", `File deleted successfully: ${file.originalname}`);
+      res.json({ message: "File deleted successfully" });
     });
-  });
+  } catch (err) {
+    addLog("server", "error", `Error finding file: ${err.message}`);
+    res.status(500).json({ error: "Error finding file" });
+  }
 });
 
 // Device selection endpoints
 app.get("/api/clients/connected", (req, res) => {
   const connectedClients = Array.from(clients.entries())
     .filter(([_, clientData]) => clientData.status === "connected")
-    .map(([clientName, clientData]) => ({ name: clientName, lastActivity: clientData.lastActivity ? clientData.lastActivity.toISOString() : null, sessionAge: clientData.lastActivity ? Math.floor((new Date() - clientData.lastActivity) / 1000) + "s" : "N/A", isSelected: clientName === selectedDevice }));
+    .map(([clientName, clientData]) => ({ 
+      name: clientName, 
+      lastActivity: clientData.lastActivity ? clientData.lastActivity.toISOString() : null, 
+      sessionAge: clientData.lastActivity ? Math.floor((new Date() - clientData.lastActivity) / 1000) + "s" : "N/A", 
+      isSelected: clientName === selectedDevice 
+    }));
   res.json({ count: connectedClients.length, clients: connectedClients, selectedDevice: selectedDevice || null });
 });
 
-app.post("/api/select-device", (req, res) => {
+app.post("/api/select-device", async (req, res) => {
   const { deviceName } = req.body;
   if (!deviceName) return res.status(400).json({ error: "Device name is required" });
-  db.get("SELECT name FROM clients WHERE name = ?", [deviceName], (err, row) => {
-    if (err) return res.status(500).json({ error: "Database error" });
-    if (!row) return res.status(404).json({ error: "Device not found" });
+  
+  try {
+    const device = await Client.findOne({ name: deviceName });
+    if (!device) return res.status(404).json({ error: "Device not found" });
+    
     const clientData = clients.get(deviceName);
     if (!clientData || clientData.status !== "connected") return res.status(400).json({ error: "Device is not connected", suggestion: "Initialize the device first" });
+    
     selectedDevice = deviceName;
     addLog(deviceName, "info", `Device ${deviceName} selected as active context`);
-    res.json({ message: `Device ${deviceName} is now the active context`, selectedDevice, status: "connected", lastActivity: clientData.lastActivity.toISOString() });
-  });
+    res.json({ 
+      message: `Device ${deviceName} is now the active context`, 
+      selectedDevice, 
+      status: "connected", 
+      lastActivity: clientData.lastActivity.toISOString() 
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Database error" });
+  }
 });
 
-app.get("/api/selected-device", (req, res) => {
+app.get("/api/selected-device", async (req, res) => {
   if (!selectedDevice) return res.json({ selectedDevice: null });
-  db.get("SELECT * FROM clients WHERE name = ?", [selectedDevice], (err, dbData) => {
-    if (err || !dbData) return res.json({ selectedDevice, warning: "Could not fetch additional device info" });
+  
+  try {
+    const device = await Client.findOne({ name: selectedDevice });
+    if (!device) return res.json({ selectedDevice, warning: "Could not fetch additional device info" });
+    
     const clientData = clients.get(selectedDevice);
-    res.json({ selectedDevice, number: dbData.number, status: clientData?.status || "disconnected", lastActivity: clientData?.lastActivity?.toISOString(), sessionAge: clientData?.lastActivity ? Math.floor((new Date() - clientData.lastActivity) / 1000) + "s" : null });
-  });
+    res.json({ 
+      selectedDevice, 
+      number: device.number, 
+      status: clientData?.status || "disconnected", 
+      lastActivity: clientData?.lastActivity?.toISOString(), 
+      sessionAge: clientData?.lastActivity ? Math.floor((new Date() - clientData.lastActivity) / 1000) + "s" : null 
+    });
+  } catch (err) {
+    res.json({ selectedDevice, warning: "Could not fetch additional device info" });
+  }
 });
 
 app.post("/api/clear-selected-device", (req, res) => {
@@ -643,148 +680,180 @@ app.post("/api/send", async (req, res) => {
 // ---------------- QUICK REPLIES (MULTI-FILE) ----------------
 
 // Add or update quick reply (supports multiple files)
-app.post("/api/:device/quick-replies", quickReplyUpload.array("files", 10), (req, res) => {
+app.post("/api/:device/quick-replies", quickReplyUpload.array("files", 10), async (req, res) => {
   const { device } = req.params;
   const { key, reply, captions = [] } = req.body;
 
   if (!key) return res.status(400).json({ error: "key is required" });
   if (!device) return res.status(400).json({ error: "device name is required" });
 
-  db.get("SELECT name FROM clients WHERE name = ?", [device], (err, deviceRow) => {
-    if (err) return res.status(500).json({ error: "Database error checking device" });
+  try {
+    const deviceRow = await Client.findOne({ name: device });
     if (!deviceRow) return res.status(404).json({ error: "Device not found" });
 
-    db.run(
-      `INSERT INTO quick_replies (deviceName, key, reply)
-       VALUES (?, ?, ?)
-       ON CONFLICT(deviceName, key) DO UPDATE SET reply = excluded.reply`,
-      [device, key.toLowerCase(), reply],
-      function (err) {
-        if (err) {
-          console.error("Error saving quick reply:", err);
-          return res.status(500).json({ error: "Failed to save quick reply" });
-        }
+    // Find or create quick reply
+    let quickReply = await QuickReply.findOne({ deviceName: device, key: key.toLowerCase() });
+    if (quickReply) {
+      quickReply.reply = reply;
+      await quickReply.save();
+    } else {
+      quickReply = new QuickReply({
+        deviceName: device,
+        key: key.toLowerCase(),
+        reply
+      });
+      await quickReply.save();
+    }
 
-        const quickReplyId = this.lastID;
-        const filesToProcess = req.files || [];
+    const filesToProcess = req.files || [];
+    const filePromises = filesToProcess.map(async (file, idx) => {
+      const caption = Array.isArray(captions) ? captions[idx] || '' : captions;
+      
+      const quickReplyFile = new QuickReplyFile({
+        quickReplyId: quickReply._id,
+        filePath: file.path,
+        fileName: file.originalname,
+        mimetype: file.mimetype,
+        caption
+      });
+      
+      return quickReplyFile.save();
+    });
 
-        if (filesToProcess.length > 0) {
-          const stmt = db.prepare(
-            "INSERT INTO quick_reply_files (quickReplyId, filePath, fileName, mimetype, caption) VALUES (?, ?, ?, ?, ?)"
-          );
+    await Promise.all(filePromises);
 
-          filesToProcess.forEach((file, idx) => {
-            const caption = Array.isArray(captions) ? captions[idx] || '' : captions;
-            stmt.run(
-              [quickReplyId, file.path, file.originalname, file.mimetype, caption],
-              (err) => {
-                if (err) console.error("Error saving file info:", err);
-              }
-            );
-          });
-
-          stmt.finalize();
-        }
-
-        res.json({
-          message: `Quick reply saved for ${device}`,
-          key: key.toLowerCase(),
-          reply,
-          files: filesToProcess.map((f, idx) => ({
-            name: f.originalname,
-            caption: Array.isArray(captions) ? captions[idx] || '' : captions,
-          })),
-        });
-      }
-    );
-  });
+    res.json({
+      message: `Quick reply saved for ${device}`,
+      key: key.toLowerCase(),
+      reply,
+      files: filesToProcess.map((f, idx) => ({
+        name: f.originalname,
+        caption: Array.isArray(captions) ? captions[idx] || '' : captions,
+      })),
+    });
+  } catch (err) {
+    console.error("Error saving quick reply:", err);
+    res.status(500).json({ error: "Failed to save quick reply" });
+  }
 });
 
-
 // Get quick replies with file list and full file info
-app.get("/api/:device/quick-replies", (req, res) => {
+app.get("/api/:device/quick-replies", async (req, res) => {
   const { device } = req.params;
-  db.all("SELECT * FROM quick_replies WHERE deviceName = ? ORDER BY key", [device], (err, replies) => {
-    if (err) return res.status(500).json({ error: "Failed to fetch quick replies" });
+  try {
+    const replies = await QuickReply.find({ deviceName: device }).sort({ key: 1 });
     if (!replies || replies.length === 0) return res.json([]);
-    const promises = replies.map(reply => new Promise((resolve) => {
-      db.all("SELECT id, fileName, mimetype, filePath, uploadDate FROM quick_reply_files WHERE quickReplyId = ?", [reply.id], (err, files) => {
-        if (err) resolve({ id: reply.id, key: reply.key, reply: reply.reply, createdAt: reply.createdAt, files: [] });
-        else resolve({ id: reply.id, key: reply.key, reply: reply.reply, createdAt: reply.createdAt, files: files.map(f => ({ id: f.id, name: f.fileName, type: f.mimetype, path: f.filePath, uploadDate: f.uploadDate })) });
-      });
+    
+    const repliesWithFiles = await Promise.all(replies.map(async (reply) => {
+      const files = await QuickReplyFile.find({ quickReplyId: reply._id });
+      return {
+        id: reply._id,
+        key: reply.key,
+        reply: reply.reply,
+        createdAt: reply.createdAt,
+        files: files.map(f => ({ 
+          id: f._id, 
+          name: f.fileName, 
+          type: f.mimetype, 
+          path: f.filePath, 
+          uploadDate: f.uploadDate 
+        }))
+      };
     }));
-    Promise.all(promises).then(results => res.json(results));
-  });
+    
+    res.json(repliesWithFiles);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch quick replies" });
+  }
 });
 
 // Delete a quick reply (and files)
-app.delete("/api/:device/quick-replies/:key", (req, res) => {
+app.delete("/api/:device/quick-replies/:key", async (req, res) => {
   const { device, key } = req.params;
-  db.get("SELECT id FROM quick_replies WHERE deviceName = ? AND key = ?", [device, key.toLowerCase()], (err, row) => {
-    if (err) return res.status(500).json({ error: "Database error" });
-    if (!row) return res.status(404).json({ error: "Quick reply not found" });
-    db.all("SELECT filePath FROM quick_reply_files WHERE quickReplyId = ?", [row.id], (err, files) => {
-      if (!err && files) files.forEach(file => { fs.unlink(file.filePath, (e) => { if (e) console.error("Error deleting file:", e); }); });
-      db.run("DELETE FROM quick_replies WHERE id = ?", [row.id], function(err) {
-        if (err) return res.status(500).json({ error: "Failed to delete quick reply" });
-        res.json({ message: `Quick reply '${key}' deleted successfully` });
-      });
-    });
-  });
+  try {
+    const quickReply = await QuickReply.findOne({ deviceName: device, key: key.toLowerCase() });
+    if (!quickReply) return res.status(404).json({ error: "Quick reply not found" });
+    
+    // Get files to delete from filesystem
+    const files = await QuickReplyFile.find({ quickReplyId: quickReply._id });
+    for (const file of files) {
+      fs.unlink(file.filePath, (e) => { if (e) console.error("Error deleting file:", e); });
+    }
+    
+    // Delete files from database
+    await QuickReplyFile.deleteMany({ quickReplyId: quickReply._id });
+    
+    // Delete quick reply
+    await QuickReply.findByIdAndDelete(quickReply._id);
+    
+    res.json({ message: `Quick reply '${key}' deleted successfully` });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to delete quick reply" });
+  }
 });
-
 // Delete a single file attached to a quick reply
-app.delete('/api/:device/quick-replies/:key/files/:fileId', (req, res) => {
+app.delete('/api/:device/quick-replies/:key/files/:fileId', async (req, res) => {
   const { device } = req.params;
   const { key, fileId } = { key: req.params.key.toLowerCase(), fileId: req.params.fileId };
-  db.get('SELECT id FROM quick_replies WHERE deviceName = ? AND key = ?', [device, key], (err, row) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    if (!row) return res.status(404).json({ error: 'Quick reply not found' });
-    const quickReplyId = row.id;
-    db.get('SELECT filePath FROM quick_reply_files WHERE id = ? AND quickReplyId = ?', [fileId, quickReplyId], (err, fileRow) => {
-      if (err) return res.status(500).json({ error: 'DB error' });
-      if (!fileRow) return res.status(404).json({ error: 'File not found' });
-      fs.unlink(fileRow.filePath, (e) => { if (e) console.error('unlink error', e.message); });
-      db.run('DELETE FROM quick_reply_files WHERE id = ?', [fileId], function(err) {
-        if (err) return res.status(500).json({ error: 'Failed to delete file record' });
-        res.json({ message: 'File deleted' });
-      });
-    });
-  });
+  
+  try {
+    const quickReply = await QuickReply.findOne({ deviceName: device, key: key });
+    if (!quickReply) return res.status(404).json({ error: 'Quick reply not found' });
+    
+    const file = await QuickReplyFile.findOne({ _id: fileId, quickReplyId: quickReply._id });
+    if (!file) return res.status(404).json({ error: 'File not found' });
+    
+    // Delete file from filesystem
+    fs.unlink(file.filePath, (e) => { if (e) console.error('unlink error', e.message); });
+    
+    // Delete file record from database
+    await QuickReplyFile.findByIdAndDelete(fileId);
+    
+    res.json({ message: 'File deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete file' });
+  }
 });
 
 // Add/replace files for an existing quick reply
-app.post('/api/:device/quick-replies/:key/files', quickReplyUpload.array('files', 10), (req, res) => {
+app.post('/api/:device/quick-replies/:key/files', quickReplyUpload.array('files', 10), async (req, res) => {
   const device = req.params.device;
   const key = req.params.key.toLowerCase();
   const replace = req.query.replace === '1';
-  db.get('SELECT id FROM quick_replies WHERE deviceName = ? AND key = ?', [device, key], (err, row) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    if (!row) return res.status(404).json({ error: 'Quick reply not found' });
-    const quickReplyId = row.id;
+  
+  try {
+    const quickReply = await QuickReply.findOne({ deviceName: device, key: key });
+    if (!quickReply) return res.status(404).json({ error: 'Quick reply not found' });
+    
     const files = req.files || [];
+    
     if (replace) {
-      db.all('SELECT id, filePath FROM quick_reply_files WHERE quickReplyId = ?', [quickReplyId], (err, rows) => {
-        if (!err && rows) rows.forEach(r => fs.unlink(r.filePath, () => {}));
-        db.run('DELETE FROM quick_reply_files WHERE quickReplyId = ?', [quickReplyId], () => {
-          insertFilesForQuickReply(quickReplyId, files, res);
-        });
-      });
-    } else {
-      insertFilesForQuickReply(quickReplyId, files, res);
+      // Delete existing files
+      const existingFiles = await QuickReplyFile.find({ quickReplyId: quickReply._id });
+      for (const file of existingFiles) {
+        fs.unlink(file.filePath, () => {});
+      }
+      await QuickReplyFile.deleteMany({ quickReplyId: quickReply._id });
     }
-  });
-});
-
-function insertFilesForQuickReply(quickReplyId, files, res) {
-  if (!files || files.length === 0) return res.json({ message: 'No files to add' });
-  const stmt = db.prepare('INSERT INTO quick_reply_files (quickReplyId, filePath, fileName, mimetype) VALUES (?, ?, ?, ?)');
-  files.forEach(f => stmt.run([quickReplyId, f.path, f.originalname, f.mimetype]));
-  stmt.finalize((err) => {
-    if (err) return res.status(500).json({ error: 'Failed to save files' });
+    
+    // Add new files
+    const filePromises = files.map(file => {
+      const quickReplyFile = new QuickReplyFile({
+        quickReplyId: quickReply._id,
+        filePath: file.path,
+        fileName: file.originalname,
+        mimetype: file.mimetype
+      });
+      return quickReplyFile.save();
+    });
+    
+    await Promise.all(filePromises);
+    
     res.json({ message: 'Files added', files: files.map(f => f.originalname) });
-  });
-}
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add files' });
+  }
+});
 
 // Manually send quick reply (text + multiple files) - uses token-bucket rate-limit
 app.post("/api/:device/send-quick", async (req, res) => {
@@ -804,50 +873,76 @@ app.post("/api/:device/send-quick", async (req, res) => {
 });
 
 // Schedule quick reply
-app.post('/api/:device/schedule-quick', (req, res) => {
+app.post('/api/:device/schedule-quick', async (req, res) => {
   const device = req.params.device;
   const { number, key, scheduledAt } = req.body;
   if (!number || !key || !scheduledAt) return res.status(400).json({ error: 'number, key, scheduledAt required' });
   const when = new Date(scheduledAt);
   if (isNaN(when.getTime())) return res.status(400).json({ error: 'invalid scheduledAt' });
-  db.run('INSERT INTO scheduled_messages (clientName, receiver, messageType, content, scheduledTime) VALUES (?, ?, ?, ?, ?)', [device, number, 'quick_reply', key.toLowerCase(), when.toISOString()], function(err) {
-    if (err) return res.status(500).json({ error: 'Failed to schedule' });
-    res.json({ message: 'Scheduled', id: this.lastID });
-  });
+  
+  try {
+    const scheduledMessage = new ScheduledMessage({
+      clientName: device,
+      receiver: number,
+      messageType: 'quick_reply',
+      content: key.toLowerCase(),
+      scheduledTime: when
+    });
+    
+    await scheduledMessage.save();
+    res.json({ message: 'Scheduled', id: scheduledMessage._id });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to schedule' });
+  }
 });
 
-app.get('/api/:device/scheduled', (req, res) => {
-  db.all('SELECT * FROM scheduled_messages WHERE clientName = ? ORDER BY scheduledTime', [req.params.device], (err, rows) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    res.json(rows || []);
-  });
+app.get('/api/:device/scheduled', async (req, res) => {
+  try {
+    const scheduledMessages = await ScheduledMessage.find({ clientName: req.params.device })
+      .sort({ scheduledTime: 1 });
+    res.json(scheduledMessages);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch scheduled messages' });
+  }
 });
 
-app.delete('/api/:device/scheduled/:id', (req, res) => {
-  db.run('DELETE FROM scheduled_messages WHERE id = ? AND clientName = ?', [req.params.id, req.params.device], function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Not found' });
+app.delete('/api/:device/scheduled/:id', async (req, res) => {
+  try {
+    const result = await ScheduledMessage.deleteOne({ 
+      _id: req.params.id, 
+      clientName: req.params.device 
+    });
+    
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Not found' });
     res.json({ message: 'Deleted' });
-  });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete scheduled message' });
+  }
 });
 
 // Cron to dispatch scheduled messages every minute
 cron.schedule('* * * * *', async () => {
-  const now = new Date().toISOString();
-  db.all('SELECT * FROM scheduled_messages WHERE scheduledTime <= ? AND status = "pending"', [now], async (err, rows) => {
-    if (err || !rows || rows.length === 0) return;
-    for (const msg of rows) {
+  const now = new Date();
+  try {
+    const scheduledMessages = await ScheduledMessage.find({ 
+      scheduledTime: { $lte: now },
+      status: 'pending'
+    });
+    
+    for (const msg of scheduledMessages) {
       try {
         if (msg.messageType === 'quick_reply') {
           await sendQuickReply(msg.clientName, msg.receiver, msg.content, { scheduled: true });
         }
-        db.run('UPDATE scheduled_messages SET status = "sent" WHERE id = ?', [msg.id]);
+        await ScheduledMessage.findByIdAndUpdate(msg._id, { status: 'sent' });
       } catch (e) {
-        console.error('Scheduled send failed for id', msg.id, e.message);
-        db.run('UPDATE scheduled_messages SET status = "failed" WHERE id = ?', [msg.id]);
+        console.error('Scheduled send failed for id', msg._id, e.message);
+        await ScheduledMessage.findByIdAndUpdate(msg._id, { status: 'failed' });
       }
     }
-  });
+  } catch (err) {
+    console.error('Error processing scheduled messages:', err.message);
+  }
 });
 
 // sendQuickReply helper — uses venom client and logs results
@@ -856,23 +951,11 @@ async function sendQuickReply(device, number, key, opts = {}) {
   if (!clientData || clientData.status !== 'connected') throw new Error('Device not connected');
 
   // Fetch quick reply main data
-  const quickReply = await new Promise((resolve, reject) =>
-    db.get(
-      'SELECT id, reply FROM quick_replies WHERE deviceName = ? AND key = ?',
-      [device, key.toLowerCase()],
-      (err, row) => (err ? reject(err) : resolve(row))
-    )
-  );
+  const quickReply = await QuickReply.findOne({ deviceName: device, key: key.toLowerCase() });
   if (!quickReply) throw new Error('Quick reply not found');
 
   // Fetch all files with optional captions
-  const files = await new Promise((resolve, reject) =>
-    db.all(
-      'SELECT filePath, fileName, mimetype, caption FROM quick_reply_files WHERE quickReplyId = ? ORDER BY id',
-      [quickReply.id],
-      (err, rows) => (err ? reject(err) : resolve(rows || []))
-    )
-  );
+  const files = await QuickReplyFile.find({ quickReplyId: quickReply._id }).sort({ _id: 1 });
 
   const formatted = number.includes('@c.us') ? number : `${number}@c.us`;
   const results = [];
@@ -882,16 +965,28 @@ async function sendQuickReply(device, number, key, opts = {}) {
     try {
       const r = await clientData.client.sendText(formatted, quickReply.reply.trim());
       results.push({ type: 'text', success: true, result: r });
-      db.run(
-        'INSERT INTO send_logs (deviceName, quickReplyKey, number, type, success, result) VALUES (?, ?, ?, ?, ?, ?)',
-        [device, key, number, 'text', 1, JSON.stringify(r)]
-      );
+      
+      const sendLog = new SendLog({
+        deviceName: device,
+        quickReplyKey: key,
+        number: number,
+        type: 'text',
+        success: true,
+        result: JSON.stringify(r)
+      });
+      await sendLog.save();
     } catch (e) {
       results.push({ type: 'text', success: false, error: e.message });
-      db.run(
-        'INSERT INTO send_logs (deviceName, quickReplyKey, number, type, success, result) VALUES (?, ?, ?, ?, ?, ?)',
-        [device, key, number, 'text', 0, e.message]
-      );
+      
+      const sendLog = new SendLog({
+        deviceName: device,
+        quickReplyKey: key,
+        number: number,
+        type: 'text',
+        success: false,
+        result: e.message
+      });
+      await sendLog.save();
     }
   }
 
@@ -900,6 +995,7 @@ async function sendQuickReply(device, number, key, opts = {}) {
     try {
       let sendResult;
       const caption = file.caption || ''; // Use caption from DB
+      
       if (file.mimetype.startsWith('image/')) {
         sendResult = await clientData.client.sendImage(formatted, file.filePath, file.fileName || 'image', caption);
       } else if (file.mimetype.startsWith('video/')) {
@@ -907,13 +1003,30 @@ async function sendQuickReply(device, number, key, opts = {}) {
       } else {
         sendResult = await clientData.client.sendFile(formatted, file.filePath, file.fileName || 'file', caption);
       }
+      
       results.push({ type: 'file', file: file.fileName, success: true, result: sendResult });
-      db.run('INSERT INTO send_logs (deviceName, quickReplyKey, number, type, success, result) VALUES (?, ?, ?, ?, ?, ?)', 
-        [device, key, number, 'file', 1, JSON.stringify(sendResult)]);
+      
+      const sendLog = new SendLog({
+        deviceName: device,
+        quickReplyKey: key,
+        number: number,
+        type: 'file',
+        success: true,
+        result: JSON.stringify(sendResult)
+      });
+      await sendLog.save();
     } catch (err) {
       results.push({ type: 'file', file: file.fileName, success: false, error: err.message });
-      db.run('INSERT INTO send_logs (deviceName, quickReplyKey, number, type, success, result) VALUES (?, ?, ?, ?, ?, ?)', 
-        [device, key, number, 'file', 0, err.message]);
+      
+      const sendLog = new SendLog({
+        deviceName: device,
+        quickReplyKey: key,
+        number: number,
+        type: 'file',
+        success: false,
+        result: err.message
+      });
+      await sendLog.save();
     }
   }
 
@@ -921,39 +1034,82 @@ async function sendQuickReply(device, number, key, opts = {}) {
   return results;
 }
 
-
 // Toggle auto-reply per device
-app.post('/api/:device/auto-reply', (req, res) => {
-  const device = req.params.device; const { enabled } = req.body;
-  const val = enabled ? 1 : 0;
-  db.run('UPDATE clients SET autoReplyEnabled = ? WHERE name = ?', [val, device], function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
+app.post('/api/:device/auto-reply', async (req, res) => {
+  const device = req.params.device; 
+  const { enabled } = req.body;
+  
+  try {
+    await Client.updateOne({ name: device }, { autoReplyEnabled: enabled });
     res.json({ message: `Auto-reply ${enabled ? 'enabled' : 'disabled'}` });
-  });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update auto-reply setting' });
+  }
 });
 
 // Webhooks management
-app.post('/api/webhooks', (req, res) => {
-  const { url, enabled = 1, secret } = req.body;
+app.post('/api/webhooks', async (req, res) => {
+  const { url, enabled = true, secret } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
-  db.run('INSERT INTO webhooks (url, enabled, secret) VALUES (?, ?, ?)', [url, enabled ? 1 : 0, secret || null], function(err) {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    res.json({ id: this.lastID, url, enabled: !!enabled });
-  });
+  
+  try {
+    const webhook = new Webhook({
+      url,
+      enabled,
+      secret
+    });
+    
+    await webhook.save();
+    res.json({ id: webhook._id, url, enabled });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create webhook' });
+  }
 });
-app.get('/api/webhooks', (req, res) => { db.all('SELECT id, url, enabled, createdAt FROM webhooks', [], (err, rows) => { if (err) return res.status(500).json({ error: 'DB error' }); res.json(rows || []); }); });
-app.delete('/api/webhooks/:id', (req, res) => { db.run('DELETE FROM webhooks WHERE id = ?', [req.params.id], function(err) { if (err) return res.status(500).json({ error: 'DB error' }); res.json({ message: 'deleted' }); }); });
+
+app.get('/api/webhooks', async (req, res) => {
+  try {
+    const webhooks = await Webhook.find({}).sort({ createdAt: -1 });
+    res.json(webhooks);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch webhooks' });
+  }
+});
+
+app.delete('/api/webhooks/:id', async (req, res) => {
+  try {
+    const result = await Webhook.findByIdAndDelete(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Webhook not found' });
+    res.json({ message: 'deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete webhook' });
+  }
+});
 
 // Quick replies stats
-app.get('/api/:device/quick-replies/stats', (req, res) => {
+app.get('/api/:device/quick-replies/stats', async (req, res) => {
   const device = req.params.device;
-  db.all('SELECT quickReplyKey, COUNT(*) as sends FROM send_logs WHERE deviceName = ? AND success = 1 GROUP BY quickReplyKey ORDER BY sends DESC LIMIT 20', [device], (err, top) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    db.get('SELECT COUNT(*) as total FROM send_logs WHERE deviceName = ?', [device], (err2, totalRow) => {
-      if (err2) return res.status(500).json({ error: 'DB error' });
-      res.json({ topKeys: top || [], total: (totalRow && totalRow.total) || 0 });
-    });
-  });
+  
+  try {
+    // Get top quick reply keys by usage
+    const topKeys = await SendLog.aggregate([
+      { $match: { deviceName: device, success: true } },
+      { $group: { _id: "$quickReplyKey", sends: { $sum: 1 } } },
+      { $sort: { sends: -1 } },
+      { $limit: 20 }
+    ]);
+    
+    // Get total sends
+    const totalResult = await SendLog.aggregate([
+      { $match: { deviceName: device, success: true } },
+      { $group: { _id: null, total: { $sum: 1 } } }
+    ]);
+    
+    const total = totalResult.length > 0 ? totalResult[0].total : 0;
+    
+    res.json({ topKeys: topKeys.map(item => ({ quickReplyKey: item._id, sends: item.sends })), total });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
 });
 
 // Enhanced attachQuickReplyHandler: checks autoReplyEnabled, rate-limit, logs and webhooks
@@ -963,20 +1119,14 @@ async function attachQuickReplyHandlerEnhanced(client, clientName) {
     const text = message.body?.toLowerCase().trim();
     if (!text) return;
 
-    const clientRow = await new Promise(resolve =>
-      db.get('SELECT autoReplyEnabled FROM clients WHERE name = ?', [clientName], (err, r) => resolve(r))
-    );
-    if (!clientRow || clientRow.autoReplyEnabled === 0) return;
-
     try {
-      const quickReply = await new Promise((resolve, reject) =>
-        db.get('SELECT id, reply FROM quick_replies WHERE deviceName = ? AND key = ?', [clientName, text], (err, row) => (err ? reject(err) : resolve(row)))
-      );
+      const clientRow = await Client.findOne({ name: clientName });
+      if (!clientRow || clientRow.autoReplyEnabled === false) return;
+
+      const quickReply = await QuickReply.findOne({ deviceName: clientName, key: text });
       if (!quickReply) return;
 
-      const files = await new Promise((resolve, reject) =>
-        db.all('SELECT filePath, fileName, mimetype, caption FROM quick_reply_files WHERE quickReplyId = ? ORDER BY id', [quickReply.id], (err, rows) => (err ? reject(err) : resolve(rows || [])))
-      );
+      const files = await QuickReplyFile.find({ quickReplyId: quickReply._id }).sort({ _id: 1 });
 
       if (!canSendNow(clientName, message.from)) {
         addLog(clientName, 'warning', `Auto-reply rate limited to ${message.from}`);
@@ -986,22 +1136,38 @@ async function attachQuickReplyHandlerEnhanced(client, clientName) {
       // Send text first (if exists)
       if (quickReply.reply && quickReply.reply.trim()) {
         await client.sendText(message.from, quickReply.reply.trim());
-        db.run('INSERT INTO send_logs (deviceName, quickReplyKey, number, type, success, result) VALUES (?, ?, ?, ?, ?, ?)',
-          [clientName, text, message.from, 'text', 1, 'auto']);
+        
+        const sendLog = new SendLog({
+          deviceName: clientName,
+          quickReplyKey: text,
+          number: message.from,
+          type: 'text',
+          success: true,
+          result: 'auto'
+        });
+        await sendLog.save();
       }
 
       // Send each file with its caption
       for (const file of files) {
         try {
-          if (file.mimetype.startsWith('image/'))
+          if (file.mimetype.startsWith('image/')) {
             await client.sendImage(message.from, file.filePath, file.fileName || 'image', file.caption || '');
-          else if (file.mimetype.startsWith('video/'))
+          } else if (file.mimetype.startsWith('video/')) {
             await client.sendVideoAsGif(message.from, file.filePath, file.fileName || 'video', file.caption || '');
-          else
+          } else {
             await client.sendFile(message.from, file.filePath, file.fileName || 'file', file.caption || '');
+          }
 
-          db.run('INSERT INTO send_logs (deviceName, quickReplyKey, number, type, success, result) VALUES (?, ?, ?, ?, ?, ?)', 
-            [clientName, text, message.from, 'file', 1, 'auto']);
+          const sendLog = new SendLog({
+            deviceName: clientName,
+            quickReplyKey: text,
+            number: message.from,
+            type: 'file',
+            success: true,
+            result: 'auto'
+          });
+          await sendLog.save();
         } catch (fErr) {
           addLog(clientName, 'error', `Failed to send file ${file.fileName}: ${fErr.message}`);
         }
@@ -1015,59 +1181,54 @@ async function attachQuickReplyHandlerEnhanced(client, clientName) {
   });
 }
 
-// Expose attach function for potential external usage
-module.exports = { attachQuickReplyHandlerEnhanced };
-
 // Get recent sent logs, divided per device
-app.get('/api/recent-logs', (req, res) => {
+app.get('/api/recent-logs', async (req, res) => {
   // Optional query params: device, limit (default: 20)
   const { device, limit = 20 } = req.query;
-  let sql, params;
-
-  if (device) {
-    sql = `
-      SELECT deviceName, quickReplyKey, number, type, success, result, datetime(createdAt, 'localtime') as timestamp
-      FROM send_logs
-      WHERE deviceName = ?
-      ORDER BY id DESC
-      LIMIT ?
-    `;
-    params = [device, limit];
-  } else {
-    sql = `
-      SELECT deviceName, quickReplyKey, number, type, success, result, datetime(createdAt, 'localtime') as timestamp
-      FROM send_logs
-      ORDER BY id DESC
-      LIMIT ?
-    `;
-    params = [limit];
-  }
-
-  db.all(sql, params, (err, rows) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
+  
+  try {
+    let query = {};
+    if (device) {
+      query.deviceName = device;
+    }
+    
+    const logs = await SendLog.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
+    
     // Group logs by device
     const logsByDevice = {};
-    rows.forEach(log => {
+    logs.forEach(log => {
       if (!logsByDevice[log.deviceName]) logsByDevice[log.deviceName] = [];
       logsByDevice[log.deviceName].push({
         key: log.quickReplyKey,
         number: log.number,
         type: log.type,
-        success: !!log.success,
+        success: log.success,
         result: log.result,
-        timestamp: log.timestamp
+        timestamp: log.createdAt
       });
     });
+    
     res.json(logsByDevice);
-  });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch logs' });
+  }
 });
-
 
 // Health check & graceful shutdown
 app.get("/api/health", (req, res) => {
-  const dbStatus = db ? "connected" : "disconnected";
+  const dbStatus = mongoose.connection.readyState === 1 ? "connected" : "disconnected";
   const activeClients = Array.from(clients.values()).filter((c) => c.status === "connected").length;
-  res.json({ status: "ok", uptime: process.uptime(), database: dbStatus, activeClients, selectedDevice, memoryUsage: process.memoryUsage(), timestamp: new Date().toISOString() });
+  res.json({ 
+    status: "ok", 
+    uptime: process.uptime(), 
+    database: dbStatus, 
+    activeClients, 
+    selectedDevice, 
+    memoryUsage: process.memoryUsage(), 
+    timestamp: new Date().toISOString() 
+  });
 });
 
 async function destroyAllClientsAndBrowsers() {
@@ -1082,41 +1243,60 @@ async function destroyAllClientsAndBrowsers() {
     } catch (err) { addLog(clientName, "error", `Cleanup error: ${err.message}`); }
   });
   try {
-    await Promise.race([Promise.all(cleanupPromises), new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timeout after 30 seconds')), 30000))]);
+    await Promise.race([
+      Promise.all(cleanupPromises), 
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timeout after 30 seconds')), 30000))
+    ]);
   } catch (err) { addLog("server", "error", `Cleanup timeout or error: ${err.message}`); }
 }
 
-server = app.listen(port, () => { console.log(`Server is running on http://localhost:${port}`); });
+server = app.listen(port, () => { 
+  console.log(`Server is running on http://localhost:${port}`);
+  initializeAllClients();
+});
 
 async function gracefulShutdown() {
   console.log("\nGracefully shutting down server...");
   try {
     await new Promise((resolve) => server.close(resolve));
     await destroyAllClientsAndBrowsers();
-    await new Promise((resolve, reject) => { db.close((err) => err ? reject(err) : resolve()); });
+    await mongoose.connection.close();
     process.exit(0);
-  } catch (err) { process.exit(1); }
+  } catch (err) { 
+    console.error("Error during shutdown:", err);
+    process.exit(1); 
+  }
 }
+
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
 process.on("SIGHUP", gracefulShutdown);
 
 // Cleanup of old files every 24h
-setInterval(() => {
+setInterval(async () => {
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const cutoffDate = cutoff.toISOString().replace("T", " ").substring(0, 19);
-  db.all("SELECT * FROM files WHERE uploadDate < ?", [cutoffDate], (err, oldFiles) => {
-    if (err) return addLog("server", "error", `Error finding old files: ${err.message}`);
-    oldFiles.forEach((file) => {
+  
+  try {
+    const oldFiles = await File.find({ uploadDate: { $lt: cutoff } });
+    for (const file of oldFiles) {
       fs.unlink(file.path, (err) => {
-        if (err) addLog("server", "error", `Error deleting old file ${file.originalname}: ${err.message}`);
-        else {
-          db.run("DELETE FROM files WHERE id = ?", [file.id], (err) => {
-            if (err) addLog("server", "error", `Error deleting old file record ${file.originalname}: ${err.message}`);
-            else addLog("server", "info", `Cleaned up old file: ${file.originalname}`);
+        if (err) {
+          addLog("server", "error", `Error deleting old file ${file.originalname}: ${err.message}`);
+        } else {
+          File.findByIdAndDelete(file._id, (err) => {
+            if (err) {
+              addLog("server", "error", `Error deleting old file record ${file.originalname}: ${err.message}`);
+            } else {
+              addLog("server", "info", `Cleaned up old file: ${file.originalname}`);
+            }
           });
         }
       });
-    });
-  });
+    }
+  } catch (err) {
+    addLog("server", "error", `Error finding old files: ${err.message}`);
+  }
 }, 24 * 60 * 60 * 1000);
+
+// Expose attach function for potential external usage
+module.exports = { attachQuickReplyHandlerEnhanced };
